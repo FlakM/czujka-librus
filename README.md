@@ -148,6 +148,7 @@ EMAIL_TO=odbiorca1@example.com,odbiorca2@example.com
 
 ## 📚 Dokumentacja
 
+- [**🚀 Szczegółowe instrukcje uruchomienia**](RUNNING.md) - Docker, Nix, systemd, native
 - [**Moduł NixOS**](NIXOS_MODULE.md) - pełna dokumentacja wdrożenia NixOS
 - [**Development**](CLAUDE.md) - dokumentacja dla deweloperów
 - [**Docker Compose**](docker-compose.yml) - przykładowa konfiguracja
