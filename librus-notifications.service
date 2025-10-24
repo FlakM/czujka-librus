@@ -1,0 +1,22 @@
+[Unit]
+Description=Librus Notifications Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=%i
+WorkingDirectory=/home/%i/librus-notifications
+ExecStart=/usr/bin/node index.js
+
+Environment="NODE_ENV=production"
+EnvironmentFile=/etc/librus-notifications/credentials.env
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=librus-notifications
+
+Restart=no
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,35 @@
+{
+  "name": "librus-notifications",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Automated notification system for Librus (Polish school management system) with AI-powered analysis and email notifications",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "librus",
+    "notifications",
+    "openai",
+    "email",
+    "school",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/librus.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/librus/issues"
+  },
+  "homepage": "https://github.com/yourusername/librus#readme",
+  "dependencies": {
+    "librus-api": "^2.15.0",
+    "dotenv": "^16.0.3",
+    "better-sqlite3": "^11.0.0",
+    "openai": "^4.0.0",
+    "nodemailer": "^6.9.0"
+  }
+}
