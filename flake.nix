@@ -13,9 +13,8 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-      in
-      {
-        packages.default = pkgs.buildNpmPackage {
+
+        app = pkgs.buildNpmPackage {
           pname = "librus-notifications";
           version = "1.0.0";
 
@@ -68,6 +67,31 @@
             license = licenses.mit;
             platforms = platforms.linux;
           };
+        };
+
+        dockerImage = pkgs.dockerTools.buildLayeredImage {
+          name = "ghcr.io/flakm/czujka-librus";
+          tag = "latest";
+
+          contents = [ app pkgs.coreutils ];
+
+          config = {
+            Cmd = [ "${app}/bin/librus-notifications" ];
+            WorkingDir = "/data";
+            Env = [
+              "NODE_ENV=production"
+              "DB_PATH=/data/librus.db"
+            ];
+            Volumes = {
+              "/data" = {};
+            };
+          };
+        };
+      in
+      {
+        packages = {
+          default = app;
+          docker = dockerImage;
         };
 
         devShells.default = pkgs.mkShell {

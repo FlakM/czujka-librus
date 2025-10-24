@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  czujka-librus:
+    image: ghcr.io/flakm/czujka-librus:latest
+    container_name: czujka-librus
+    restart: unless-stopped
+
+    environment:
+      # Dane logowania Librus
+      LIBRUS_USERNAME: ${LIBRUS_USERNAME}
+      LIBRUS_PASSWORD: ${LIBRUS_PASSWORD}
+
+      # OpenAI API
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+      # Konfiguracja e-mail
+      SEND_EMAIL: ${SEND_EMAIL:-true}
+      EMAIL_HOST: ${EMAIL_HOST:-smtp.fastmail.com}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USER: ${EMAIL_USER}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD}
+      EMAIL_FROM: ${EMAIL_FROM}
+      EMAIL_TO: ${EMAIL_TO}
+
+      # Opcjonalne
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DB_PATH: /data/librus.db
+
+    volumes:
+      - ./data:/data
+
+    # Uruchom codziennie o 7:00 i 15:00 używając crona w kontenerze
+    # Lub użyj zewnętrznego crona/systemd timera do uruchamiania kontenera

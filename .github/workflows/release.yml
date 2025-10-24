@@ -1,15 +1,16 @@
-name: Release
+name: Build and Push Docker
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
 
 jobs:
-  build-and-release:
+  build-and-push:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
@@ -23,18 +24,25 @@ jobs:
         with:
           name: czujka-librus
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: false
 
-      - name: Build package
-        run: nix build .#default
+      - name: Build Docker image with Nix
+        run: nix build .#docker
 
-      - name: Create tarball
-        run: |
-          tar czf czujka-librus-${{ github.ref_name }}-x86_64-linux.tar.gz -C result .
+      - name: Load image to Docker
+        run: docker load < result
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          files: czujka-librus-${{ github.ref_name }}-x86_64-linux.tar.gz
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image
+        run: |
+          docker push ghcr.io/flakm/czujka-librus:latest
+
+          # Tag with git commit SHA for versioning
+          docker tag ghcr.io/flakm/czujka-librus:latest ghcr.io/flakm/czujka-librus:${{ github.sha }}
+          docker push ghcr.io/flakm/czujka-librus:${{ github.sha }}
