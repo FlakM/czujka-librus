@@ -1,248 +1,200 @@
-# Powiadomienia z Librusa
+<div align="center">
 
-Zautomatyzowany system powiadomień dla Librusa (polski system do zarządzania szkołą) z analizą AI i powiadomieniami e-mail.
+# 🔔 Czujka Librus
 
-## Co robi?
+**Inteligentne powiadomienia e-mail z Librusa z analizą AI**
 
-Ta usługa automatycznie monitoruje Twoje konto Librus pod kątem nowych ogłoszeń i wiadomości, analizuje je za pomocą OpenAI i wysyła inteligentne powiadomienia e-mail. Główne funkcje:
+[![CI](https://github.com/FlakM/czujka-librus/workflows/CI/badge.svg)](https://github.com/FlakM/czujka-librus/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Nix](https://img.shields.io/badge/built%20with-nix-5277C3.svg?logo=nixos&logoColor=white)](https://nixos.org)
 
-- **Automatyczne monitorowanie Librusa**: Loguje się do Librusa i pobiera nowe ogłoszenia i wiadomości
-- **Inteligentne wykrywanie zmian**: Używa bazy danych SQLite do śledzenia już przetworzonych elementów
-- **Analiza AI**: OpenAI (GPT-4o-mini) analizuje treść i:
-  - Generuje zwięzłe podsumowania dostosowane do kontekstu klasy 1
-  - Wyodrębnia kluczowe punkty z **pogrubionymi datami** i emoji (📅 📝 ⏰ 💰)
-  - Klasyfikuje pilność (PILNE/NORMALNE/NIEPILNE) na podstawie wymagań działania rodzica
-  - Oznacza jako pilne tylko te elementy, które wymagają działania rodzica lub mają bliskie terminy
-- **Bogate powiadomienia e-mail w HTML**:
-  - Podsumowanie AI i kluczowe punkty
-  - Indywidualne zwijane sekcje dla każdego ogłoszenia/wiadomości
-  - Bezpośrednie linki do wiadomości w interfejsie webowym Librusa
-  - Wsparcie dla wielu odbiorców (oddzielonych przecinkami)
-  - Niestandardowa nazwa nadawcy ("ETE librus <librus@flakm.com>")
-- **Gotowe do produkcji**:
-  - Logowanie kompatybilne z systemd
-  - Moduł NixOS do deklaratywnego wdrożenia
-  - Wzmocnienie bezpieczeństwa (PrivateTmp, NoNewPrivileges, ProtectSystem)
+</div>
 
-### Przykładowy e-mail
+---
 
-![Zrzut ekranu e-maila](email-screenshot.png)
+## 📸 Jak to wygląda?
 
-E-mail pokazuje podsumowania wygenerowane przez AI z odznakami pilności, kluczowymi punktami z emoji i pogrubionymi datami oraz zwijalnymi sekcjami dla każdego ogłoszenia/wiadomości z bezpośrednimi linkami do Librusa.
+![Przykładowy e-mail](email-screenshot.png)
 
-## Konfiguracja
+Otrzymujesz **inteligentne podsumowania** z AI, które:
+- 📅 Wyróżniają **daty i terminy**
+- 🚨 Oznaczają **pilność** (tylko jeśli wymagane działanie)
+- 📝 Wyodrębniają **kluczowe punkty** z emoji
+- 🔗 Zawierają **bezpośrednie linki** do Librusa
 
-### Zmienne środowiskowe
+---
 
-Utwórz plik `.env` z następującą konfiguracją:
+## 🚀 Szybki start
 
-```env
-# Dane logowania Librus (wymagane)
-LIBRUS_USERNAME=111110000
-LIBRUS_PASSWORD=TwojeHasło
-
-# OpenAI API (wymagane)
-OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
-
-# Konfiguracja e-mail
-SEND_EMAIL=true                                 # Włącz/wyłącz wysyłanie e-maili
-EMAIL_HOST=smtp.fastmail.com                    # Serwer SMTP
-EMAIL_PORT=587                                  # Port SMTP (587 dla TLS)
-EMAIL_USER=me@example.com                       # Nazwa użytkownika uwierzytelniania SMTP
-EMAIL_PASSWORD=password                         # Hasło aplikacji (NIE główne hasło)
-EMAIL_FROM=ETE librus <librus@example.com>      # Nazwa i adres nadawcy
-EMAIL_TO=me@flakm.com,other@example.com         # Odbiorcy (oddzieleni przecinkami dla wielu)
-
-# Ustawienia opcjonalne
-LOG_LEVEL=INFO                                  # ERROR, WARN, INFO lub DEBUG
-DB_PATH=./librus.db                             # Lokalizacja bazy danych SQLite
-```
-
-### Konfiguracja dostawcy e-mail
-
-#### Fastmail (Zalecane)
-
-1. Przejdź do Ustawienia → Hasło i bezpieczeństwo → Hasła aplikacji
-2. Utwórz nowe hasło aplikacji dla "librus-notifications"
-3. Użyj swojego głównego e-maila Fastmail jako `EMAIL_USER`
-4. Użyj wygenerowanego hasła aplikacji jako `EMAIL_PASSWORD`
-5. Użyj dowolnego aliasu jako `EMAIL_FROM` (np. `librus@twojadomena.com`)
-
-#### Gmail
-
-1. Włącz uwierzytelnianie dwuskładnikowe
-2. Przejdź do Konto Google → Bezpieczeństwo → Hasła aplikacji
-3. Wygeneruj hasło aplikacji dla "Poczta"
-4. Użyj swojego adresu Gmail jako `EMAIL_USER`
-5. Użyj wygenerowanego 16-znakowego hasła jako `EMAIL_PASSWORD`
-
-## Rozwój lokalny
-
-### Wymagania wstępne
-
-- Node.js 20+
-- Nix (opcjonalny, ale zalecany)
-
-### Konfiguracja z Nix (Zalecane)
+### Docker (najłatwiejszy sposób)
 
 ```bash
-# Wejdź do shella - alternatywnie z direnv po prostu cd  
-nix develop
+# 1. Skopiuj przykładową konfigurację
+curl -O https://raw.githubusercontent.com/FlakM/czujka-librus/main/.env.example
+mv .env.example .env
 
-# Zainstaluj zależności
-npm install
+# 2. Edytuj .env - dodaj swoje dane logowania
+nano .env
 
-# Skopiuj i skonfiguruj środowisko
-cp .env.example .env
-# Edytuj .env swoimi danymi logowania
-
-# Uruchom usługę
-npm start
+# 3. Uruchom
+docker run --env-file .env -v $(pwd)/data:/data ghcr.io/flakm/czujka-librus:latest
 ```
 
-### Konfiguracja bez Nix
+### Nix
 
 ```bash
-# Zainstaluj Node.js 20+ i zależności
-npm install
-
-# Skonfiguruj środowisko
-cp .env.example .env
-# Edytuj .env swoimi danymi logowania
-
-# Uruchom usługę
-npm start
+# Uruchom bezpośrednio z GitHub
+nix run github:FlakM/czujka-librus
 ```
 
-### Testowanie
+<details>
+<summary><b>📦 Inne opcje instalacji</b></summary>
 
-```bash
-# Test z wyłączonym e-mailem (tylko wyjście konsoli)
-SEND_EMAIL=false npm start
-
-# Test z włączonym e-mailem
-npm start
-
-# Usuń bazę danych, aby ponownie przetworzyć wszystkie elementy
-rm librus.db && npm start
-```
-
-## Wdrożenie
-
-### Opcja 1: Moduł NixOS (Zalecane dla NixOS)
-
-#### 1. Dodaj do swoich input flake
+### NixOS (moduł systemowy)
 
 ```nix
+# flake.nix
 {
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    librus-notifications.url = "github:yourusername/librus";
-    # Lub użyj lokalnej ścieżki podczas rozwoju:
-    # librus-notifications.url = "path:/path/to/librus";
-  };
+  inputs.czujka-librus.url = "github:FlakM/czujka-librus";
 
-  outputs = { self, nixpkgs, librus-notifications }: {
-    nixosConfigurations.yourhostname = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
+  outputs = { self, nixpkgs, czujka-librus }: {
+    nixosConfigurations.yourhost = nixpkgs.lib.nixosSystem {
       modules = [
-        ./configuration.nix
-        librus-notifications.nixosModules.default
+        czujka-librus.nixosModules.default
+        {
+          services.librus-notifications = {
+            enable = true;
+            environmentFile = "/etc/czujka-librus/credentials.env";
+            schedule = [ "*-*-* 07:00:00" "*-*-* 15:00:00" ];
+          };
+        }
       ];
     };
   };
 }
 ```
 
-#### 2. Skonfiguruj usługę w `configuration.nix`
+Zobacz [NIXOS_MODULE.md](NIXOS_MODULE.md) dla pełnej dokumentacji.
 
-Sekrety najlepiej przekazywać przy użyciu sops/innego mechanizmu zarządzania sekretami lub jako plik z ograniczonymi uprawnieniami.
-
-```nix
-{
-  services.librus-notifications = {
-    enable = true;
-    package = inputs.librus-notifications.packages.x86_64-linux.default;
-    environmentFile = "/etc/librus-notifications/credentials.env";
-
-    # Opcjonalnie: dostosuj harmonogram (domyślnie 7:00 i 15:00)
-    schedule = [ "*-*-* 07:00:00" "*-*-* 15:00:00" ];
-
-    # Opcjonalnie: dostosuj użytkownika/grupę i katalog danych
-    user = "librus-notifications";
-    group = "librus-notifications";
-    dataDir = "/var/lib/librus-notifications";
-  };
-}
-```
-
-#### 3. Przebuduj i sprawdź status
+### Node.js (manual)
 
 ```bash
-sudo nixos-rebuild switch
-
-# Sprawdź status usługi
-sudo systemctl status librus-notifications.timer
-sudo systemctl list-timers | grep librus
-
-# Zobacz logi
-journalctl -u librus-notifications -f
-
-# Ręczny test
-sudo systemctl start librus-notifications.service
+git clone https://github.com/FlakM/czujka-librus.git
+cd czujka-librus
+npm install
+cp .env.example .env
+# Edytuj .env
+npm start
 ```
 
-Zobacz `NIXOS_MODULE.md` dla pełnej dokumentacji modułu i zaawansowanych konfiguracji.
+</details>
 
-### Opcja 2: Ręczny Systemd (Inne dystrybucje Linux)
+---
 
-#### 1. Zbuduj pakiet z Nix
+## ✨ Funkcje
 
-```bash
-nix build
-# Binarka będzie w: ./result/bin/librus-notifications
+- 🤖 **Analiza AI** - GPT-4o-mini analizuje ogłoszenia i wiadomości
+- 📧 **E-mail z HTML** - piękne, responsywne powiadomienia
+- 🎯 **Inteligentna pilność** - AI rozpoznaje co naprawdę wymaga uwagi
+- 👨‍👩‍👧 **Multi-recipient** - wysyłaj do wielu odbiorców
+- 🗄️ **SQLite tracking** - pamięta co już przetworzył
+- ⚙️ **Production ready** - moduł NixOS, Docker, systemd
+- 🔒 **Bezpieczne** - security hardening (PrivateTmp, NoNewPrivileges)
+
+---
+
+## ⚙️ Konfiguracja
+
+### Wymagane zmienne środowiskowe
+
+```env
+# Librus
+LIBRUS_USERNAME=twój_login
+LIBRUS_PASSWORD=twoje_hasło
+
+# OpenAI
+OPENAI_API_KEY=sk-proj-xxx
+
+# Email
+SEND_EMAIL=true
+EMAIL_HOST=smtp.fastmail.com
+EMAIL_PORT=587
+EMAIL_USER=twoj@email.com
+EMAIL_PASSWORD=hasło_aplikacji
+EMAIL_FROM=Czujka <czujka@twojadomena.com>
+EMAIL_TO=odbiorca1@example.com,odbiorca2@example.com
 ```
 
-#### 2. Zainstaluj w lokalizacji systemowej
+<details>
+<summary><b>📨 Konfiguracja email (Fastmail / Gmail)</b></summary>
 
-```bash
-# Skopiuj binarki
-sudo cp -r result /opt/librus-notifications
+### Fastmail (zalecane)
 
-# Utwórz dowiązanie symboliczne
-sudo ln -s /opt/librus-notifications/bin/librus-notifications /usr/local/bin/librus-notifications
+1. Ustawienia → Hasło i bezpieczeństwo → Hasła aplikacji
+2. Utwórz nowe hasło dla "czujka-librus"
+3. Użyj głównego emaila jako `EMAIL_USER`
+4. Użyj hasła aplikacji jako `EMAIL_PASSWORD`
+
+### Gmail
+
+1. Włącz uwierzytelnianie dwuskładnikowe
+2. Konto Google → Bezpieczeństwo → Hasła aplikacji
+3. Wygeneruj hasło dla "Poczta"
+4. Użyj 16-znakowego hasła jako `EMAIL_PASSWORD`
+
+</details>
+
+---
+
+## 📚 Dokumentacja
+
+- [**Moduł NixOS**](NIXOS_MODULE.md) - pełna dokumentacja wdrożenia NixOS
+- [**Development**](CLAUDE.md) - dokumentacja dla deweloperów
+- [**Docker Compose**](docker-compose.yml) - przykładowa konfiguracja
+
+---
+
+## 🏗️ Architektura
+
+```
+┌─────────────┐      ┌──────────┐      ┌─────────┐
+│   Librus    │─────▶│  OpenAI  │─────▶│  Email  │
+│     API     │      │ GPT-4o-m │      │  SMTP   │
+└─────────────┘      └──────────┘      └─────────┘
+       │                   │                  │
+       ▼                   ▼                  ▼
+  Pobiera dane      Analizuje AI        Wysyła HTML
+  2x dziennie      Klasyfikuje         Multi-odbiorca
+                   Wyodrębnia
 ```
 
-#### 3. Utwórz pliki usługi systemd
+**Tech stack:** Node.js 20, SQLite, OpenAI API, Nodemailer, Nix
 
-Edytuj `librus-notifications.service` i `librus-notifications.timer`, następnie:
+---
 
-```bash
-sudo cp librus-notifications.service /etc/systemd/system/
-sudo cp librus-notifications.timer /etc/systemd/system/
-```
+## 🤝 Contributing
 
-#### 4. Skonfiguruj dane logowania
+Contributions welcome! Zgłaszaj issues, pull requesty lub sugestie.
 
-```bash
-sudo mkdir -p /etc/librus-notifications
-sudo cp .env /etc/librus-notifications/credentials.env
-sudo chmod 600 /etc/librus-notifications/credentials.env
-```
+---
 
-#### 5. Włącz i uruchom
+## 📄 Licencja
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now librus-notifications.timer
+MIT © 2024
 
-### Sprawdź status
+---
 
-```bash
-sudo systemctl status librus-notifications.timer
-journalctl -u librus-notifications -f
-```
+## 🙏 Podziękowania
 
-## Licencja
+- [librus-api](https://github.com/Mati365/librus-api) - nieoficjalne API dla Librusa
+- OpenAI - za GPT-4o-mini
 
-MIT
+---
+
+<div align="center">
+
+**Zrobione z ❤️ dla rodziców śpiących dzieci**
+
+[⭐ Daj gwiazdkę jeśli pomogło](https://github.com/FlakM/czujka-librus)
+
+</div>
