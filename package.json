@@ -19,12 +19,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/librus.git"
+    "url": "git+https://github.com/FlakM/czujka-librus.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/librus/issues"
+    "url": "https://github.com/FlakM/czujka-librus/issues"
   },
-  "homepage": "https://github.com/yourusername/librus#readme",
+  "homepage": "https://github.com/FlakM/czujka-librus#readme",
   "dependencies": {
     "librus-api": "^2.15.0",
     "dotenv": "^16.0.3",
