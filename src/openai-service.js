@@ -20,12 +20,47 @@ export async function summarizeAndClassify(items, type = 'announcements') {
   const itemsText = items.map((item, idx) => {
     if (type === 'announcements') {
       return `${idx + 1}. ${item.title || 'Brak tytułu'}\n   Autor: ${item.user || item.author || 'Nieznany'}\n   Data: ${item.date || 'Brak daty'}\n   Treść: ${item.content || 'Brak treści'}`;
-    } else {
+    } else if (type === 'messages') {
       return `${idx + 1}. ${item.title || 'Brak tytułu'}\n   Od: ${item.user || 'Nieznany'}\n   Data: ${item.date || 'Brak daty'}\n   Treść: ${item.body || 'Brak treści'}`;
+    } else if (type === 'grades') {
+      return `${idx + 1}. Przedmiot: ${item.subject || 'Nieznany'}\n   Ocena: ${item.value || 'Brak oceny'}\n   Informacje: ${item.info || 'Brak informacji'}`;
     }
   }).join('\n\n');
 
-  const prompt = `Jesteś asystentem analizującym ${type === 'announcements' ? 'ogłoszenia' : 'wiadomości'} ze szkoły (Librus).
+  let prompt;
+  if (type === 'grades') {
+    prompt = `Jesteś asystentem analizującym nowe oceny ucznia ze szkoły (Librus).
+
+KONTEKST:
+- Uczennica uczęszcza do 1 klasy szkoły podstawowej
+- Rodzice chcą być informowani o wszystkich nowych ocenach
+- Oceny mogą być w różnych formatach (cyfry, znaki +/-, opisowe jak T)
+
+NOWE OCENY:
+${itemsText}
+
+Zadania:
+1. Przeanalizuj wszystkie nowe oceny
+2. Oceń poziom pilności:
+   - PILNE: oceny niedostateczne lub wymagające uwagi
+   - NORMALNE: pozytywne oceny, postępy
+   - NIEPILNE: nie dotyczy ocen
+3. Wygeneruj:
+   - Krótkie podsumowanie (2-3 zdania) z pozytywnym tonie
+   - Listę ocen pogrupowanych po przedmiotach z formatowaniem:
+     * Używaj emoji: 📚 dla przedmiotu, ⭐ dla dobrych ocen, 📝 dla testów
+     * Wyróżnij wartość oceny **pogrubieniem**
+     * Dołącz istotne informacje z komentarza nauczyciela
+   - Klasyfikację pilności
+
+Zwróć odpowiedź w formacie JSON:
+{
+  "urgency": "PILNE" | "NORMALNE" | "NIEPILNE",
+  "summary": "krótkie podsumowanie",
+  "keyPoints": ["📚 Przedmiot: **ocena** - komentarz", ...]
+}`;
+  } else {
+    prompt = `Jesteś asystentem analizującym ${type === 'announcements' ? 'ogłoszenia' : 'wiadomości'} ze szkoły (Librus).
 
 KONTEKST:
 - Córka użytkownika uczęszcza do 1 klasy szkoły podstawowej
@@ -56,6 +91,7 @@ Zwróć odpowiedź w formacie JSON:
   "summary": "krótkie podsumowanie",
   "keyPoints": ["punkt 1 z **datami** i emoji", "punkt 2", ...]
 }`;
+  }
 
   try {
     logger.debug(`Sending request to OpenAI for ${type}`);
@@ -76,10 +112,11 @@ Zwróć odpowiedź w formacie JSON:
     return result;
   } catch (error) {
     logger.error(`OpenAI API error for ${type}:`, { error: error.message });
+    const typeLabel = type === 'announcements' ? 'ogłoszeń' : type === 'messages' ? 'wiadomości' : 'ocen';
     return {
       urgency: 'NORMALNE',
-      summary: `Nie udało się wygenerować podsumowania. Liczba ${type === 'announcements' ? 'ogłoszeń' : 'wiadomości'}: ${items.length}`,
-      keyPoints: items.map(item => item.title || 'Brak tytułu')
+      summary: `Nie udało się wygenerować podsumowania. Liczba ${typeLabel}: ${items.length}`,
+      keyPoints: items.map(item => item.title || item.subject || 'Brak tytułu')
     };
   }
 }

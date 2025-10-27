@@ -37,7 +37,7 @@ function formatMarkdown(text) {
   return text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
-function generateHtmlEmail(announcementsData, messagesData, announcements, messages) {
+function generateHtmlEmail(announcementsData, messagesData, gradesData, announcements, messages, grades) {
   let html = `
 <!DOCTYPE html>
 <html>
@@ -57,6 +57,7 @@ function generateHtmlEmail(announcementsData, messagesData, announcements, messa
     .item { margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 5px; border-left: 3px solid #6c757d; }
     .item-header { font-weight: bold; color: #2c3e50; margin-bottom: 5px; }
     .item-meta { font-size: 13px; color: #6c757d; margin-bottom: 10px; }
+    .grade-item { margin: 15px 0; padding: 15px; background: #e8f4f8; border-radius: 5px; border-left: 3px solid #17a2b8; }
     details { margin-top: 10px; }
     summary { cursor: pointer; color: #3498db; font-weight: 500; }
     summary:hover { color: #2980b9; }
@@ -149,6 +150,42 @@ function generateHtmlEmail(announcementsData, messagesData, announcements, messa
 `;
   }
 
+  if (gradesData) {
+    html += `
+  <div class="section">
+    <h2>⭐ Nowe oceny ${generateUrgencyBadge(gradesData.urgency)}</h2>
+    <div class="summary">
+      <strong>Podsumowanie:</strong><br>
+      ${formatMarkdown(gradesData.summary)}
+    </div>
+    <div class="key-points">
+      <strong>Kluczowe punkty:</strong>
+      <ul>
+        ${gradesData.keyPoints.map(point => `<li>${formatMarkdown(point)}</li>`).join('')}
+      </ul>
+    </div>
+    <h3>Szczegóły ocen:</h3>
+`;
+
+    if (grades && grades.length > 0) {
+      grades.forEach((item, idx) => {
+        html += `
+    <div class="grade-item">
+      <div class="item-header">${idx + 1}. ${item.subject || 'Nieznany przedmiot'} - ${item.value || 'Brak oceny'}</div>
+      <details>
+        <summary>Pokaż szczegóły</summary>
+        <div class="item-content">${item.info || 'Brak informacji'}</div>
+      </details>
+    </div>
+`;
+      });
+    }
+
+    html += `
+  </div>
+`;
+  }
+
   html += `
   <div class="footer">
     <p>To powiadomienie zostało wygenerowane automatycznie przez system monitorowania Librusa.</p>
@@ -169,23 +206,28 @@ function getSubjectPrefix(urgency) {
   }
 }
 
-export async function sendNotification(announcementsData, messagesData, announcements, messages) {
+export async function sendNotification(announcementsData, messagesData, gradesData, announcements, messages, grades) {
   const hasAnnouncements = announcementsData && announcementsData.keyPoints.length > 0;
   const hasMessages = messagesData && messagesData.keyPoints.length > 0;
+  const hasGrades = gradesData && gradesData.keyPoints.length > 0;
 
-  if (!hasAnnouncements && !hasMessages) {
+  if (!hasAnnouncements && !hasMessages && !hasGrades) {
     logger.info('No new items to notify about');
     return;
   }
 
-  const maxUrgency = !hasAnnouncements ? messagesData.urgency :
-                     !hasMessages ? announcementsData.urgency :
-                     (announcementsData.urgency === 'PILNE' || messagesData.urgency === 'PILNE') ? 'PILNE' :
-                     (announcementsData.urgency === 'NORMALNE' || messagesData.urgency === 'NORMALNE') ? 'NORMALNE' :
+  const urgencies = [
+    hasAnnouncements ? announcementsData.urgency : null,
+    hasMessages ? messagesData.urgency : null,
+    hasGrades ? gradesData.urgency : null
+  ].filter(Boolean);
+
+  const maxUrgency = urgencies.includes('PILNE') ? 'PILNE' :
+                     urgencies.includes('NORMALNE') ? 'NORMALNE' :
                      'NIEPILNE';
 
   const subject = `${getSubjectPrefix(maxUrgency)} Nowe powiadomienia z Librusa`;
-  const html = generateHtmlEmail(announcementsData, messagesData, announcements, messages);
+  const html = generateHtmlEmail(announcementsData, messagesData, gradesData, announcements, messages, grades);
 
   if (!shouldSendEmail()) {
     logger.info('EMAIL SENDING DISABLED - Notification content:');

@@ -1,6 +1,6 @@
 import Librus from 'librus-api';
 import dotenv from 'dotenv';
-import { initDatabase, getExistingAnnouncementIds, getExistingMessageIds, saveAnnouncement, saveMessage, closeDatabase } from './src/database.js';
+import { initDatabase, getExistingAnnouncementIds, getExistingMessageIds, getExistingGradeIds, saveAnnouncement, saveMessage, saveGrade, closeDatabase } from './src/database.js';
 import { logger } from './src/logger.js';
 import { summarizeAndClassify } from './src/openai-service.js';
 import { sendNotification } from './src/email-service.js';
@@ -100,6 +100,53 @@ async function fetchAndProcessMessages() {
   }
 }
 
+async function fetchAndProcessGrades() {
+  try {
+    const allGrades = await client.info.getGrades();
+
+    if (!allGrades || allGrades.length === 0) {
+      logger.info('No grades returned from API');
+      return null;
+    }
+
+    const existingIds = getExistingGradeIds();
+    const newGrades = [];
+
+    for (const subject of allGrades) {
+      if (!subject.semester || !Array.isArray(subject.semester)) continue;
+
+      for (const semester of subject.semester) {
+        if (!semester.grades || !Array.isArray(semester.grades)) continue;
+
+        for (const grade of semester.grades) {
+          const gradeId = grade.id.toString();
+          if (!existingIds.has(gradeId)) {
+            const gradeData = {
+              id: grade.id,
+              subject: subject.name,
+              value: grade.value,
+              info: grade.info
+            };
+            newGrades.push(gradeData);
+            saveGrade(gradeData);
+          }
+        }
+      }
+    }
+
+    if (newGrades.length === 0) {
+      logger.info('No new grades');
+      return null;
+    }
+
+    logger.info(`Found ${newGrades.length} new grade(s)`);
+    return newGrades;
+  } catch (error) {
+    logger.error('Error fetching grades', { error: error.message, stack: error.stack });
+    return null;
+  }
+}
+
 async function main() {
   try {
     logger.info('Starting Librus notification service');
@@ -120,13 +167,15 @@ async function main() {
     await client.authorize(username, password);
     logger.info('Authentication successful');
 
-    const [newAnnouncements, newMessages] = await Promise.all([
+    const [newAnnouncements, newMessages, newGrades] = await Promise.all([
       fetchAndProcessAnnouncements(),
-      fetchAndProcessMessages()
+      fetchAndProcessMessages(),
+      fetchAndProcessGrades()
     ]);
 
     let announcementsAnalysis = null;
     let messagesAnalysis = null;
+    let gradesAnalysis = null;
 
     if (newAnnouncements && newAnnouncements.length > 0) {
       logger.info('Analyzing announcements with OpenAI');
@@ -138,8 +187,13 @@ async function main() {
       messagesAnalysis = await summarizeAndClassify(newMessages, 'messages');
     }
 
-    if (announcementsAnalysis || messagesAnalysis) {
-      await sendNotification(announcementsAnalysis, messagesAnalysis, newAnnouncements, newMessages);
+    if (newGrades && newGrades.length > 0) {
+      logger.info('Analyzing grades with OpenAI');
+      gradesAnalysis = await summarizeAndClassify(newGrades, 'grades');
+    }
+
+    if (announcementsAnalysis || messagesAnalysis || gradesAnalysis) {
+      await sendNotification(announcementsAnalysis, messagesAnalysis, gradesAnalysis, newAnnouncements, newMessages, newGrades);
     } else {
       logger.info('No new items to process');
     }
