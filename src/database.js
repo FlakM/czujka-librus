@@ -42,6 +42,16 @@ export function initDatabase() {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      day TEXT,
+      description TEXT,
+      fetched_at TEXT
+    )
+  `);
+
   logger.info('Database initialized');
 }
 
@@ -57,6 +67,11 @@ export function getExistingMessageIds() {
 
 export function getExistingGradeIds() {
   const stmt = db.prepare('SELECT id FROM grades');
+  return new Set(stmt.all().map(row => row.id.toString()));
+}
+
+export function getExistingEventIds() {
+  const stmt = db.prepare('SELECT id FROM events');
   return new Set(stmt.all().map(row => row.id.toString()));
 }
 
@@ -103,6 +118,21 @@ export function saveGrade(grade) {
     grade.subject || '',
     grade.value || '',
     grade.info || '',
+    new Date().toISOString()
+  );
+}
+
+export function saveEvent(event) {
+  const stmt = db.prepare(`
+    INSERT INTO events (id, title, day, description, fetched_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    event.id.toString(),
+    event.title || '',
+    event.day || '',
+    event.description || '',
     new Date().toISOString()
   );
 }

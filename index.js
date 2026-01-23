@@ -1,6 +1,6 @@
 import Librus from 'librus-api';
 import dotenv from 'dotenv';
-import { initDatabase, getExistingAnnouncementIds, getExistingMessageIds, getExistingGradeIds, saveAnnouncement, saveMessage, saveGrade, closeDatabase } from './src/database.js';
+import { initDatabase, getExistingAnnouncementIds, getExistingMessageIds, getExistingGradeIds, getExistingEventIds, saveAnnouncement, saveMessage, saveGrade, saveEvent, closeDatabase } from './src/database.js';
 import { logger } from './src/logger.js';
 import { summarizeAndClassify } from './src/openai-service.js';
 import { sendNotification } from './src/email-service.js';
@@ -63,7 +63,8 @@ async function fetchAndProcessAnnouncements() {
 
 async function fetchAndProcessMessages() {
   try {
-    const messages = await client.inbox.listInbox(5);
+    const INBOX_FOLDER = 6; // Folder 6 = RECEIVED (inbox), Folder 5 = SENT
+    const messages = await client.inbox.listInbox(INBOX_FOLDER);
     const existingIds = getExistingMessageIds();
 
     const newMessages = [];
@@ -71,13 +72,13 @@ async function fetchAndProcessMessages() {
     for (const message of messages) {
       if (!existingIds.has(message.id.toString())) {
         try {
-          const fullMessage = await client.inbox.getMessage(5, message.id);
+          const fullMessage = await client.inbox.getMessage(INBOX_FOLDER, message.id);
           const messageData = {
             id: message.id,
             title: message.title,
-            body: fullMessage.body || fullMessage.content || '',
+            body: fullMessage.content || '',
             date: message.date,
-            user: message.user
+            user: fullMessage.user || message.user
           };
           newMessages.push(messageData);
           saveMessage(messageData);
@@ -147,6 +148,66 @@ async function fetchAndProcessGrades() {
   }
 }
 
+async function fetchAndProcessEvents() {
+  try {
+    const currentMonth = new Date().getMonth() + 1;
+    const currentYear = new Date().getFullYear();
+    const calendarData = await client.calendar.getCalendar(currentMonth, currentYear);
+
+    if (!calendarData || calendarData.length === 0) {
+      logger.info('No calendar events returned from API');
+      return null;
+    }
+
+    const existingIds = getExistingEventIds();
+    const newEvents = [];
+
+    for (const dayEvents of calendarData) {
+      if (!dayEvents || !Array.isArray(dayEvents)) continue;
+
+      for (const event of dayEvents) {
+        if (!event || event.id === -1) continue;
+
+        const eventId = event.id.toString();
+        if (!existingIds.has(eventId)) {
+          try {
+            const eventDetails = await client.calendar.getEvent(event.id);
+            const eventData = {
+              id: event.id,
+              title: event.title,
+              day: event.day,
+              description: eventDetails?.description || ''
+            };
+            newEvents.push(eventData);
+            saveEvent(eventData);
+          } catch (err) {
+            const eventData = {
+              id: event.id,
+              title: event.title,
+              day: event.day,
+              description: ''
+            };
+            newEvents.push(eventData);
+            saveEvent(eventData);
+            logger.warn(`Failed to fetch event details ${event.id}`, { error: err.message });
+          }
+        }
+      }
+    }
+
+    if (newEvents.length === 0) {
+      logger.info('No new events');
+      return null;
+    }
+
+    logger.info(`Found ${newEvents.length} new event(s)`);
+    return newEvents;
+  } catch (error) {
+    logger.error('Error fetching events', { error: error.message, stack: error.stack });
+    return null;
+  }
+}
+
 async function main() {
   try {
     logger.info('Starting Librus notification service');
@@ -167,15 +228,17 @@ async function main() {
     await client.authorize(username, password);
     logger.info('Authentication successful');
 
-    const [newAnnouncements, newMessages, newGrades] = await Promise.all([
+    const [newAnnouncements, newMessages, newGrades, newEvents] = await Promise.all([
       fetchAndProcessAnnouncements(),
       fetchAndProcessMessages(),
-      fetchAndProcessGrades()
+      fetchAndProcessGrades(),
+      fetchAndProcessEvents()
     ]);
 
     let announcementsAnalysis = null;
     let messagesAnalysis = null;
     let gradesAnalysis = null;
+    let eventsAnalysis = null;
 
     if (newAnnouncements && newAnnouncements.length > 0) {
       logger.info('Analyzing announcements with OpenAI');
@@ -192,8 +255,13 @@ async function main() {
       gradesAnalysis = await summarizeAndClassify(newGrades, 'grades');
     }
 
-    if (announcementsAnalysis || messagesAnalysis || gradesAnalysis) {
-      await sendNotification(announcementsAnalysis, messagesAnalysis, gradesAnalysis, newAnnouncements, newMessages, newGrades);
+    if (newEvents && newEvents.length > 0) {
+      logger.info('Analyzing events with OpenAI');
+      eventsAnalysis = await summarizeAndClassify(newEvents, 'events');
+    }
+
+    if (announcementsAnalysis || messagesAnalysis || gradesAnalysis || eventsAnalysis) {
+      await sendNotification(announcementsAnalysis, messagesAnalysis, gradesAnalysis, eventsAnalysis, newAnnouncements, newMessages, newGrades, newEvents);
     } else {
       logger.info('No new items to process');
     }
