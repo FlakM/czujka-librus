@@ -78,8 +78,9 @@ KONTEKST: Emilka, klasa 1A SP ETE w Gliwicach, wychowawca p. Monika Podżorska.
 ${typeLabel}:
 ${itemsText}
 
-IGNORUJ CAŁKOWICIE (nie dotyczą klasy 1):
-- Ogłoszenia z "4-8 SP", "7/8 SP", "1-4 LO", "klasy 4-8"
+IGNORUJ CAŁKOWICIE:
+- Wiadomości WYSŁANE PRZEZ RODZICA (np. "Usprawiedliwienie", prośby o zwolnienie) - to nasze wiadomości, nie od szkoły
+- Ogłoszenia z "4-8 SP", "7/8 SP", "1-4 LO", "klasy 4-8" - nie dotyczą klasy 1
 - Wiadomości od "SuperAdministrator"
 - Odpowiedzi "Re:" które tylko potwierdzają (np. "Dziękuję za informację")
 

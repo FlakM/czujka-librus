@@ -63,13 +63,23 @@ async function fetchAndProcessAnnouncements() {
 
 async function fetchAndProcessMessages() {
   try {
-    const INBOX_FOLDER = 6; // Folder 6 = RECEIVED (inbox), Folder 5 = SENT
+    const INBOX_FOLDER = 6; // Folder 6 = RECEIVED (inbox)
+    const SENT_FOLDER = 5;  // Folder 5 = SENT
+
+    // Get sent message IDs to exclude our own messages
+    const sentMessages = await client.inbox.listInbox(SENT_FOLDER);
+    const sentIds = new Set(sentMessages.map(m => m.id.toString()));
+
     const messages = await client.inbox.listInbox(INBOX_FOLDER);
     const existingIds = getExistingMessageIds();
 
     const newMessages = [];
 
     for (const message of messages) {
+      // Skip messages we sent ourselves
+      if (sentIds.has(message.id.toString())) {
+        continue;
+      }
       if (!existingIds.has(message.id.toString())) {
         try {
           const fullMessage = await client.inbox.getMessage(INBOX_FOLDER, message.id);
