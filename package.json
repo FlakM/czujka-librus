@@ -30,6 +30,6 @@
     "dotenv": "^16.0.3",
     "librus-api": "^2.15.2",
     "nodemailer": "^6.9.0",
-    "openai": "^4.0.0"
+    "openai": "^6.16.0"
   }
 }

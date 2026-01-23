@@ -31,81 +31,95 @@ export async function summarizeAndClassify(items, type = 'announcements') {
 
   let prompt;
   if (type === 'grades') {
-    prompt = `Przeanalizuj nowe oceny uczennicy klasy 1 SP.
+    prompt = `Przeanalizuj nowe oceny Emilki z klasy 1A SP.
 
 OCENY:
 ${itemsText}
 
-System oceniania: T (znakomicie), + (dobrze), +/- (przeciętnie).
+SYSTEM OCENIANIA:
+- T = znakomicie (najlepsza)
+- + = dobrze
+- +/- = przeciętnie
+
+KATEGORIE OCEN: aktywność, sprawdzian, odpowiedź ustna, praca na lekcji, podsumowanie miesiąca
 
 ZADANIA:
-1. Wyodrębnij kluczowe informacje z komentarzy nauczycieli
-2. Określ pilność: PILNE (problemy wymagające uwagi), NORMALNE (standardowe), NIEPILNE (bez znaczenia)
-3. Napisz podsumowanie (2-3 zdania) w pozytywnym tonie
-4. Wypisz oceny z emoji: 📚 przedmiot, ⭐ ocena, 💬 komentarz
+1. Wyodrębnij kluczowe uwagi nauczycieli (np. "mniej rozmawiać z koleżanką", wyniki procentowe sprawdzianów)
+2. Określ pilność: PILNE tylko gdy są uwagi o problemach, NORMALNE dla pozytywnych ocen
+3. Napisz podsumowanie (2-3 zdania) w pozytywnym tonie podkreślając sukcesy
+4. Wypisz oceny: 📚 przedmiot | ⭐ **ocena** | 💬 istotna uwaga nauczyciela
 
-WAŻNE: W podsumowaniu napisz TYLKO własną analizę. Nie cytuj treści wiadomości ani nie powtarzaj tekstu z ocen dosłownie.
+FORMAT: Podsumowanie to Twoja analiza - NIE cytuj dosłownie komentarzy nauczycieli.
 
 JSON:
-{"urgency": "PILNE|NORMALNE|NIEPILNE", "summary": "własna analiza", "keyPoints": ["📚 Przedmiot: **ocena** - komentarz"]}`;
+{"urgency": "PILNE|NORMALNE|NIEPILNE", "summary": "Twoja analiza postępów", "keyPoints": ["📚 Przedmiot | ⭐ **T** | 💬 uwaga"]}`;
   } else if (type === 'events') {
-    prompt = `Przeanalizuj nowe wydarzenia z kalendarza szkolnego.
-
-KONTEKST: Emilia, klasa 1A SP ETE w Gliwicach, wychowawca p. Monika Podżorska.
+    prompt = `Przeanalizuj nowe wydarzenia z kalendarza szkolnego dla klasy 1A SP ETE.
 
 WYDARZENIA:
 ${itemsText}
 
 ZADANIA:
-1. Wyodrębnij ważne daty i wydarzenia dotyczące klasy 1
-2. Określ pilność: PILNE (< 7 dni, wymaga działania), NORMALNE (> 7 dni), NIEPILNE (informacyjne)
+1. Wyodrębnij daty i godziny wydarzeń
+2. Określ pilność: PILNE (< 7 dni), NORMALNE (> 7 dni), NIEPILNE (informacyjne)
 3. Napisz podsumowanie (2-3 zdania)
-4. Wypisz działania z emoji: 📅 data, 🏫 wydarzenie, ⏰ godzina
+4. Wypisz: 📅 **data** - wydarzenie | ⏰ godzina
 
-WAŻNE: W podsumowaniu napisz TYLKO własną analizę. Nie cytuj treści wydarzeń dosłownie.
+FORMAT: Podsumowanie to Twoja analiza - NIE cytuj treści.
 
 JSON:
-{"urgency": "PILNE|NORMALNE|NIEPILNE", "summary": "własna analiza", "keyPoints": ["📅 **data** - wydarzenie"]}`;
+{"urgency": "PILNE|NORMALNE|NIEPILNE", "summary": "Twoja analiza", "keyPoints": ["📅 **data** - wydarzenie"]}`;
   } else {
-    prompt = `Przeanalizuj ${type === 'announcements' ? 'ogłoszenia' : 'wiadomości'} ze szkoły.
+    const typeLabel = type === 'announcements' ? 'OGŁOSZENIA' : 'WIADOMOŚCI';
+    prompt = `Przeanalizuj ${typeLabel.toLowerCase()} ze szkoły dla klasy 1A SP ETE.
 
-KONTEKST: Emilia, klasa 1A SP ETE w Gliwicach, wychowawca p. Monika Podżorska.
-IGNORUJ: Oznaczenia "7/8 SP", "klasy 4-8", "1-4 LO" - nie dotyczą klasy 1A. Wiadomości od "SuperAdministrator".
+KONTEKST: Emilka, klasa 1A SP ETE w Gliwicach, wychowawca p. Monika Podżorska.
 
-${type === 'announcements' ? 'OGŁOSZENIA' : 'WIADOMOŚCI'}:
+${typeLabel}:
 ${itemsText}
 
-KATEGORIE: ZAOPATRZENIE (przybory), WYCIECZKA (wyjazdy), ZADANIE (do domu), WYDARZENIE (uroczystości), ORGANIZACJA (zmiany), ZDROWIE.
+IGNORUJ CAŁKOWICIE (nie dotyczą klasy 1):
+- Ogłoszenia z "4-8 SP", "7/8 SP", "1-4 LO", "klasy 4-8"
+- Wiadomości od "SuperAdministrator"
+- Odpowiedzi "Re:" które tylko potwierdzają (np. "Dziękuję za informację")
+
+TYPY WIADOMOŚCI DO ROZPOZNANIA:
+- CZYTANIE: "tekst do ładnego czytania", strony z podręcznika (np. str. 45, 52)
+- WYCIECZKA: koszty (np. 50zł), godziny wyjazdu/powrotu, co zabrać
+- PRZYBORY: materiały na plastykę (włóczka, papier), mundurki
+- KONSULTACJE: terminy spotkań z nauczycielami, godziny
+- AKCJE: "Prezent pod Choinkę", zbiórki, terminy
+- URODZINY: zaproszenia, daty, miejsca, godziny
 
 PILNOŚĆ:
-- PILNE: termin < 7 dni, przybory na zajęcia, konsultacje
-- NORMALNE: wydarzenia > 7 dni, informacje od wychowawcy
-- NIEPILNE: podziękowania, potwierdzenia, inne klasy
+- PILNE: termin < 3 dni, przybory na jutro, wpłaty z krótkim terminem
+- NORMALNE: wydarzenia 3-14 dni, informacje od wychowawcy
+- NIEPILNE: podziękowania, potwierdzenia, informacje dla innych klas
 
-WYODRĘBNIJ:
-💰 Kwoty i terminy płatności
-🎒 Przybory do przyniesienia
-📖 Strony do przeczytania
-📅 Daty wydarzeń
-⏰ Godziny zbiórek
+WYODRĘBNIJ KONKRETNIE:
+💰 Kwoty i terminy wpłat (np. "50 zł do 9.10")
+🎒 Przybory do przyniesienia (np. "2 kłębki włóczki")
+📖 Strony do czytania (np. "str. 52-53 na poniedziałek")
+📅 Daty i godziny wydarzeń
+⏰ Godziny zbiórek i powrotów
 
-WAŻNE: W podsumowaniu napisz TYLKO własną analizę - co rodzic musi wiedzieć i zrobić. NIE cytuj dosłownie treści wiadomości. NIE przepisuj tekstu z ogłoszeń.
+FORMAT: Podsumowanie to Twoja analiza CO TRZEBA ZROBIĆ - NIE cytuj treści wiadomości dosłownie.
 
 JSON:
-{"urgency": "PILNE|NORMALNE|NIEPILNE", "summary": "własna analiza co zrobić", "keyPoints": ["emoji **data/kwota** - działanie"]}`;
+{"urgency": "PILNE|NORMALNE|NIEPILNE", "summary": "Co rodzic musi zrobić", "keyPoints": ["emoji **termin** - działanie"]}`;
   }
 
   try {
     logger.debug(`Sending request to OpenAI for ${type}`);
 
     const systemMessage = type === 'grades'
-      ? 'Jesteś asystentem rodzica uczennicy 1 klasy SP. Analizujesz oceny i wyciągasz istotne informacje. Odpowiadasz TYLKO w formacie JSON. W podsumowaniu piszesz własną analizę, nie cytujesz treści.'
+      ? 'Jesteś asystentem rodzica uczennicy 1 klasy SP. Analizujesz oceny i wyciągasz konstruktywne uwagi nauczycieli. Odpowiadasz TYLKO JSON. Podsumowanie to Twoja analiza, nie cytat.'
       : type === 'events'
-      ? 'Jesteś asystentem rodzica uczennicy klasy 1A SP. Analizujesz wydarzenia szkolne. Odpowiadasz TYLKO w formacie JSON. W podsumowaniu piszesz własną analizę, nie cytujesz treści.'
-      : 'Jesteś asystentem rodzica uczennicy klasy 1A SP ETE w Gliwicach. Wyodrębniasz konkretne działania i terminy, ignorując informacje dla innych klas. Odpowiadasz TYLKO w formacie JSON. W podsumowaniu piszesz własną analizę, NIE cytujesz dosłownie treści wiadomości.';
+      ? 'Jesteś asystentem rodzica uczennicy klasy 1A SP. Analizujesz kalendarz szkolny. Odpowiadasz TYLKO JSON. Podsumowanie to Twoja analiza.'
+      : 'Jesteś asystentem rodzica uczennicy klasy 1A SP ETE. Wyodrębniasz KONKRETNE działania: co kupić, ile zapłacić, jakie strony przeczytać, kiedy przyjść. Ignorujesz wiadomości dla innych klas. Odpowiadasz TYLKO JSON. Podsumowanie to Twoja analiza CO ZROBIĆ, nie cytat wiadomości.';
 
     const response = await getOpenAI().chat.completions.create({
-      model: 'gpt-5-mini',
+      model: 'gpt-5.2',
       messages: [
         { role: 'system', content: systemMessage },
         { role: 'user', content: prompt }

@@ -20,7 +20,7 @@
 
           src = ./.;
 
-          npmDepsHash = "sha256-ko9A9a4IBqugvI27oRJw+Me05SHxyenX0+lI7/an2mg=";
+          npmDepsHash = "sha256-i8NjN9b29j7BaG7inBRLGUYDZGphMarKGO0R4LmdGmc=";
 
           makeCacheWritable = true;
           dontNpmBuild = true;
@@ -44,14 +44,7 @@
             cp -r src $out/lib/librus-notifications/
             cp index.js $out/lib/librus-notifications/
             cp package.json $out/lib/librus-notifications/
-            cp package-lock.json $out/lib/librus-notifications/
-
-            cd $out/lib/librus-notifications
-
-            # Install dependencies with proper native module rebuilding
-            export npm_config_nodedir=${pkgs.nodejs_20}
-            export npm_config_node_gyp=${pkgs.nodejs_20.pkgs.node-gyp}/lib/node_modules/node-gyp/bin/node-gyp.js
-            HOME=$TMPDIR ${pkgs.nodejs_20}/bin/npm ci --omit=dev --build-from-source
+            cp -r node_modules $out/lib/librus-notifications/
 
             cat > $out/bin/librus-notifications << EOF
             #!/bin/sh
