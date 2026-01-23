@@ -26,6 +26,8 @@ export async function summarizeAndClassify(items, type = 'announcements') {
       return `${idx + 1}. Przedmiot: ${item.subject || 'Nieznany'}\n   Ocena: ${item.value || 'Brak oceny'}\n   Informacje: ${item.info || 'Brak informacji'}`;
     } else if (type === 'events') {
       return `${idx + 1}. ${item.title || 'Brak tytułu'}\n   Data: ${item.day || 'Brak daty'}\n   Opis: ${item.description || 'Brak opisu'}`;
+    } else if (type === 'homework') {
+      return `${idx + 1}. ${item.title || 'Brak tytułu'}\n   Przedmiot: ${item.subject || 'Nieznany'}\n   Nauczyciel: ${item.user || 'Nieznany'}\n   Typ: ${item.type || 'Nieznany'}\n   Od: ${item.from || 'Brak'}\n   Do: ${item.to || 'Brak'}\n   Treść: ${item.content || 'Brak treści'}`;
     }
   }).join('\n\n');
 
@@ -69,6 +71,22 @@ FORMAT: Podsumowanie to Twoja analiza - NIE cytuj treści.
 
 JSON:
 {"urgency": "PILNE|NORMALNE|NIEPILNE", "summary": "Twoja analiza", "keyPoints": ["📅 **data** - wydarzenie"]}`;
+  } else if (type === 'homework') {
+    prompt = `Przeanalizuj nowe zadania domowe dla klasy 1A SP ETE.
+
+ZADANIA DOMOWE:
+${itemsText}
+
+ZADANIA:
+1. Wyodrębnij terminy wykonania zadań
+2. Określ pilność: PILNE (termin < 3 dni), NORMALNE (termin 3-7 dni), NIEPILNE (termin > 7 dni)
+3. Napisz podsumowanie (2-3 zdania) - co trzeba zrobić
+4. Wypisz: 📝 **przedmiot** - zadanie | ⏰ termin do
+
+FORMAT: Podsumowanie to Twoja analiza CO TRZEBA ZROBIĆ - NIE cytuj treści zadań dosłownie.
+
+JSON:
+{"urgency": "PILNE|NORMALNE|NIEPILNE", "summary": "Co trzeba zrobić", "keyPoints": ["📝 **przedmiot** - zadanie | ⏰ termin"]}`;
   } else {
     const typeLabel = type === 'announcements' ? 'OGŁOSZENIA' : 'WIADOMOŚCI';
     prompt = `Przeanalizuj ${typeLabel.toLowerCase()} ze szkoły dla klasy 1A SP ETE.
@@ -117,6 +135,8 @@ JSON:
       ? 'Jesteś asystentem rodzica uczennicy 1 klasy SP. Analizujesz oceny i wyciągasz konstruktywne uwagi nauczycieli. Odpowiadasz TYLKO JSON. Podsumowanie to Twoja analiza, nie cytat.'
       : type === 'events'
       ? 'Jesteś asystentem rodzica uczennicy klasy 1A SP. Analizujesz kalendarz szkolny. Odpowiadasz TYLKO JSON. Podsumowanie to Twoja analiza.'
+      : type === 'homework'
+      ? 'Jesteś asystentem rodzica uczennicy klasy 1A SP. Analizujesz zadania domowe i wyodrębniasz terminy oraz wymagania. Odpowiadasz TYLKO JSON. Podsumowanie to Twoja analiza CO TRZEBA ZROBIĆ.'
       : 'Jesteś asystentem rodzica uczennicy klasy 1A SP ETE. Wyodrębniasz KONKRETNE działania: co kupić, ile zapłacić, jakie strony przeczytać, kiedy przyjść. Ignorujesz wiadomości dla innych klas. Odpowiadasz TYLKO JSON. Podsumowanie to Twoja analiza CO ZROBIĆ, nie cytat wiadomości.';
 
     const response = await getOpenAI().chat.completions.create({
@@ -135,7 +155,7 @@ JSON:
     return result;
   } catch (error) {
     logger.error(`OpenAI API error for ${type}:`, { error: error.message });
-    const typeLabel = type === 'announcements' ? 'ogłoszeń' : type === 'messages' ? 'wiadomości' : type === 'grades' ? 'ocen' : 'wydarzeń';
+    const typeLabel = type === 'announcements' ? 'ogłoszeń' : type === 'messages' ? 'wiadomości' : type === 'grades' ? 'ocen' : type === 'homework' ? 'zadań domowych' : 'wydarzeń';
     return {
       urgency: 'NORMALNE',
       summary: `Nie udało się wygenerować podsumowania. Liczba ${typeLabel}: ${items.length}`,

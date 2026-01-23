@@ -1,6 +1,6 @@
 import Librus from 'librus-api';
 import dotenv from 'dotenv';
-import { initDatabase, getExistingAnnouncementIds, getExistingMessageIds, getExistingGradeIds, getExistingEventIds, saveAnnouncement, saveMessage, saveGrade, saveEvent, closeDatabase } from './src/database.js';
+import { initDatabase, getExistingAnnouncementIds, getExistingMessageIds, getExistingGradeIds, getExistingEventIds, getExistingHomeworkIds, saveAnnouncement, saveMessage, saveGrade, saveEvent, saveHomework, closeDatabase } from './src/database.js';
 import { logger } from './src/logger.js';
 import { summarizeAndClassify } from './src/openai-service.js';
 import { sendNotification } from './src/email-service.js';
@@ -218,6 +218,79 @@ async function fetchAndProcessEvents() {
   }
 }
 
+async function fetchAndProcessHomework() {
+  try {
+    const subjects = await client.homework.listSubjects();
+    if (!subjects || subjects.length === 0) {
+      logger.info('No subjects found for homework');
+      return null;
+    }
+
+    const existingIds = getExistingHomeworkIds();
+    const newHomework = [];
+
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const to = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString().split('T')[0];
+
+    for (const subject of subjects) {
+      if (!subject.id || subject.id === 0) continue;
+
+      try {
+        const homeworkList = await client.homework.listHomework(subject.id, from, to);
+        if (!homeworkList || homeworkList.length === 0) continue;
+
+        for (const hw of homeworkList) {
+          if (!existingIds.has(hw.id.toString())) {
+            try {
+              const details = await client.homework.getHomework(hw.id);
+              const homeworkData = {
+                id: hw.id,
+                subject: hw.subject || subject.name,
+                title: hw.title,
+                type: hw.type,
+                from: hw.from,
+                to: hw.to,
+                content: details?.content || '',
+                user: hw.user || details?.user || ''
+              };
+              newHomework.push(homeworkData);
+              saveHomework(homeworkData);
+            } catch (err) {
+              const homeworkData = {
+                id: hw.id,
+                subject: hw.subject || subject.name,
+                title: hw.title,
+                type: hw.type,
+                from: hw.from,
+                to: hw.to,
+                content: '',
+                user: hw.user || ''
+              };
+              newHomework.push(homeworkData);
+              saveHomework(homeworkData);
+              logger.warn(`Failed to fetch homework details ${hw.id}`, { error: err.message });
+            }
+          }
+        }
+      } catch (err) {
+        logger.warn(`Failed to fetch homework for subject ${subject.name}`, { error: err.message });
+      }
+    }
+
+    if (newHomework.length === 0) {
+      logger.info('No new homework');
+      return null;
+    }
+
+    logger.info(`Found ${newHomework.length} new homework assignment(s)`);
+    return newHomework;
+  } catch (error) {
+    logger.error('Error fetching homework', { error: error.message, stack: error.stack });
+    return null;
+  }
+}
+
 async function main() {
   try {
     logger.info('Starting Librus notification service');
@@ -238,17 +311,19 @@ async function main() {
     await client.authorize(username, password);
     logger.info('Authentication successful');
 
-    const [newAnnouncements, newMessages, newGrades, newEvents] = await Promise.all([
+    const [newAnnouncements, newMessages, newGrades, newEvents, newHomework] = await Promise.all([
       fetchAndProcessAnnouncements(),
       fetchAndProcessMessages(),
       fetchAndProcessGrades(),
-      fetchAndProcessEvents()
+      fetchAndProcessEvents(),
+      fetchAndProcessHomework()
     ]);
 
     let announcementsAnalysis = null;
     let messagesAnalysis = null;
     let gradesAnalysis = null;
     let eventsAnalysis = null;
+    let homeworkAnalysis = null;
 
     if (newAnnouncements && newAnnouncements.length > 0) {
       logger.info('Analyzing announcements with OpenAI');
@@ -270,8 +345,13 @@ async function main() {
       eventsAnalysis = await summarizeAndClassify(newEvents, 'events');
     }
 
-    if (announcementsAnalysis || messagesAnalysis || gradesAnalysis || eventsAnalysis) {
-      await sendNotification(announcementsAnalysis, messagesAnalysis, gradesAnalysis, eventsAnalysis, newAnnouncements, newMessages, newGrades, newEvents);
+    if (newHomework && newHomework.length > 0) {
+      logger.info('Analyzing homework with OpenAI');
+      homeworkAnalysis = await summarizeAndClassify(newHomework, 'homework');
+    }
+
+    if (announcementsAnalysis || messagesAnalysis || gradesAnalysis || eventsAnalysis || homeworkAnalysis) {
+      await sendNotification(announcementsAnalysis, messagesAnalysis, gradesAnalysis, eventsAnalysis, homeworkAnalysis, newAnnouncements, newMessages, newGrades, newEvents, newHomework);
     } else {
       logger.info('No new items to process');
     }

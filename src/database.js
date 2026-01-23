@@ -52,6 +52,20 @@ export function initDatabase() {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS homework (
+      id TEXT PRIMARY KEY,
+      subject TEXT,
+      title TEXT,
+      type TEXT,
+      date_from TEXT,
+      date_to TEXT,
+      content TEXT,
+      teacher TEXT,
+      fetched_at TEXT
+    )
+  `);
+
   logger.info('Database initialized');
 }
 
@@ -72,6 +86,11 @@ export function getExistingGradeIds() {
 
 export function getExistingEventIds() {
   const stmt = db.prepare('SELECT id FROM events');
+  return new Set(stmt.all().map(row => row.id.toString()));
+}
+
+export function getExistingHomeworkIds() {
+  const stmt = db.prepare('SELECT id FROM homework');
   return new Set(stmt.all().map(row => row.id.toString()));
 }
 
@@ -133,6 +152,25 @@ export function saveEvent(event) {
     event.title || '',
     event.day || '',
     event.description || '',
+    new Date().toISOString()
+  );
+}
+
+export function saveHomework(homework) {
+  const stmt = db.prepare(`
+    INSERT INTO homework (id, subject, title, type, date_from, date_to, content, teacher, fetched_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    homework.id.toString(),
+    homework.subject || '',
+    homework.title || '',
+    homework.type || '',
+    homework.from || '',
+    homework.to || '',
+    homework.content || '',
+    homework.user || '',
     new Date().toISOString()
   );
 }

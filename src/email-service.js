@@ -37,7 +37,7 @@ function formatMarkdown(text) {
   return text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
-function generateHtmlEmail(announcementsData, messagesData, gradesData, eventsData, announcements, messages, grades, events) {
+function generateHtmlEmail(announcementsData, messagesData, gradesData, eventsData, homeworkData, announcements, messages, grades, events, homework) {
   let html = `
 <!DOCTYPE html>
 <html>
@@ -223,6 +223,45 @@ function generateHtmlEmail(announcementsData, messagesData, gradesData, eventsDa
 `;
   }
 
+  if (homeworkData) {
+    html += `
+  <div class="section">
+    <h2>📝 Zadania domowe ${generateUrgencyBadge(homeworkData.urgency)}</h2>
+    <div class="summary">
+      <strong>Podsumowanie:</strong><br>
+      ${formatMarkdown(homeworkData.summary)}
+    </div>
+    <div class="key-points">
+      <strong>Kluczowe punkty:</strong>
+      <ul>
+        ${homeworkData.keyPoints.map(point => `<li>${formatMarkdown(point)}</li>`).join('')}
+      </ul>
+    </div>
+    <h3>Szczegóły zadań:</h3>
+`;
+
+    if (homework && homework.length > 0) {
+      homework.forEach((item, idx) => {
+        html += `
+    <div class="item">
+      <div class="item-header">${idx + 1}. ${item.subject || 'Nieznany przedmiot'} - ${item.title || 'Brak tytułu'}</div>
+      <div class="item-meta">
+        Nauczyciel: ${item.user || 'Nieznany'} | Typ: ${item.type || 'Nieznany'} | Termin: ${item.from || '?'} - ${item.to || '?'}
+      </div>
+      <details>
+        <summary>Pokaż treść</summary>
+        <div class="item-content">${item.content || 'Brak treści'}</div>
+      </details>
+    </div>
+`;
+      });
+    }
+
+    html += `
+  </div>
+`;
+  }
+
   html += `
   <div class="footer">
     <p>To powiadomienie zostało wygenerowane automatycznie przez system monitorowania Librusa.</p>
@@ -243,13 +282,14 @@ function getSubjectPrefix(urgency) {
   }
 }
 
-export async function sendNotification(announcementsData, messagesData, gradesData, eventsData, announcements, messages, grades, events) {
+export async function sendNotification(announcementsData, messagesData, gradesData, eventsData, homeworkData, announcements, messages, grades, events, homework) {
   const hasAnnouncements = announcementsData && announcementsData.keyPoints.length > 0;
   const hasMessages = messagesData && messagesData.keyPoints.length > 0;
   const hasGrades = gradesData && gradesData.keyPoints.length > 0;
   const hasEvents = eventsData && eventsData.keyPoints.length > 0;
+  const hasHomework = homeworkData && homeworkData.keyPoints.length > 0;
 
-  if (!hasAnnouncements && !hasMessages && !hasGrades && !hasEvents) {
+  if (!hasAnnouncements && !hasMessages && !hasGrades && !hasEvents && !hasHomework) {
     logger.info('No new items to notify about');
     return;
   }
@@ -258,7 +298,8 @@ export async function sendNotification(announcementsData, messagesData, gradesDa
     hasAnnouncements ? announcementsData.urgency : null,
     hasMessages ? messagesData.urgency : null,
     hasGrades ? gradesData.urgency : null,
-    hasEvents ? eventsData.urgency : null
+    hasEvents ? eventsData.urgency : null,
+    hasHomework ? homeworkData.urgency : null
   ].filter(Boolean);
 
   const maxUrgency = urgencies.includes('PILNE') ? 'PILNE' :
@@ -266,7 +307,7 @@ export async function sendNotification(announcementsData, messagesData, gradesDa
                      'NIEPILNE';
 
   const subject = `${getSubjectPrefix(maxUrgency)} Nowe powiadomienia z Librusa`;
-  const html = generateHtmlEmail(announcementsData, messagesData, gradesData, eventsData, announcements, messages, grades, events);
+  const html = generateHtmlEmail(announcementsData, messagesData, gradesData, eventsData, homeworkData, announcements, messages, grades, events, homework);
 
   if (!shouldSendEmail()) {
     logger.info('EMAIL SENDING DISABLED - Notification content:');
