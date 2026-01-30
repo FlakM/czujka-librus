@@ -14,6 +14,8 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
+        nodejs = pkgs.nodejs_22;
+
         app = pkgs.buildNpmPackage {
           pname = "librus-notifications";
           version = "1.0.0";
@@ -25,34 +27,44 @@
           makeCacheWritable = true;
           dontNpmBuild = true;
 
+          inherit nodejs;
+
           nativeBuildInputs = with pkgs; [
             python3
             pkg-config
-            pkgs.nodejs_20.pkgs.node-gyp
           ];
 
           buildInputs = with pkgs; [
-            nodejs_20
-            pkgs.gcc
-            pkgs.stdenv.cc
+            nodejs
           ];
 
           installPhase = ''
+            runHook preInstall
+
             mkdir -p $out/bin
             mkdir -p $out/lib/librus-notifications
 
             cp -r src $out/lib/librus-notifications/
             cp index.js $out/lib/librus-notifications/
+            cp librus-test.js $out/lib/librus-notifications/
             cp package.json $out/lib/librus-notifications/
             cp -r node_modules $out/lib/librus-notifications/
 
             cat > $out/bin/librus-notifications << EOF
-            #!/bin/sh
-            cd $out/lib/librus-notifications
-            exec ${pkgs.nodejs_20}/bin/node index.js "\$@"
-            EOF
-
+#!/bin/sh
+cd $out/lib/librus-notifications
+exec ${nodejs}/bin/node index.js "\$@"
+EOF
             chmod +x $out/bin/librus-notifications
+
+            cat > $out/bin/librus-test << EOF
+#!/bin/sh
+cd $out/lib/librus-notifications
+exec ${nodejs}/bin/node librus-test.js "\$@"
+EOF
+            chmod +x $out/bin/librus-test
+
+            runHook postInstall
           '';
 
           meta = with pkgs.lib; {
@@ -88,10 +100,10 @@
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            nodejs_20
-            python3
-            pkg-config
+          buildInputs = [
+            nodejs
+            pkgs.python3
+            pkgs.pkg-config
           ];
 
           shellHook = ''
