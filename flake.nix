@@ -14,64 +14,23 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        nodejs = pkgs.nodejs_22;
-
-        app = pkgs.buildNpmPackage {
+        app = pkgs.rustPlatform.buildRustPackage {
           pname = "librus-notifications";
-          version = "1.0.0";
+          version = "2.0.0";
 
           src = ./.;
 
-          npmDepsHash = "sha256-i8NjN9b29j7BaG7inBRLGUYDZGphMarKGO0R4LmdGmc=";
-
-          makeCacheWritable = true;
-          dontNpmBuild = true;
-
-          inherit nodejs;
-
-          nativeBuildInputs = with pkgs; [
-            python3
-            pkg-config
-          ];
-
-          buildInputs = with pkgs; [
-            nodejs
-          ];
-
-          installPhase = ''
-            runHook preInstall
-
-            mkdir -p $out/bin
-            mkdir -p $out/lib/librus-notifications
-
-            cp -r src $out/lib/librus-notifications/
-            cp index.js $out/lib/librus-notifications/
-            cp librus-test.js $out/lib/librus-notifications/
-            cp package.json $out/lib/librus-notifications/
-            cp -r node_modules $out/lib/librus-notifications/
-
-            cat > $out/bin/librus-notifications << EOF
-#!/bin/sh
-cd $out/lib/librus-notifications
-exec ${nodejs}/bin/node index.js "\$@"
-EOF
-            chmod +x $out/bin/librus-notifications
-
-            cat > $out/bin/librus-test << EOF
-#!/bin/sh
-cd $out/lib/librus-notifications
-exec ${nodejs}/bin/node librus-test.js "\$@"
-EOF
-            chmod +x $out/bin/librus-test
-
-            runHook postInstall
-          '';
-
-          meta = with pkgs.lib; {
-            description = "Librus notifications service with AI summarization";
-            license = licenses.mit;
-            platforms = platforms.linux;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            outputHashes = {
+              "librus-rs-2.0.2" = "sha256-cCFh2u0RcS1A7+XtoTcYc1a2iclBi2T/fw90vu+r1ls=";
+            };
           };
+
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.openssl ];
+
+          doCheck = false;
         };
 
         dockerImage = pkgs.dockerTools.buildLayeredImage {
@@ -84,7 +43,6 @@ EOF
             Cmd = [ "${app}/bin/librus-notifications" ];
             WorkingDir = "/data";
             Env = [
-              "NODE_ENV=production"
               "DB_PATH=/data/librus.db"
             ];
             Volumes = {
@@ -101,14 +59,16 @@ EOF
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
-            nodejs
-            pkgs.python3
-            pkgs.pkg-config
+            pkgs.rustc
+            pkgs.cargo
+            pkgs.rustfmt
+            pkgs.clippy
+            pkgs.stdenv.cc
           ];
 
           shellHook = ''
             echo "Librus Notifications Development Environment"
-            echo "Run 'npm install' to install dependencies"
+            echo "Run 'cargo build' to compile the Rust service"
           '';
         };
       }
