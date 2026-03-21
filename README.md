@@ -76,15 +76,15 @@ nix run github:FlakM/czujka-librus
 
 Zobacz [NIXOS_MODULE.md](NIXOS_MODULE.md) dla pełnej dokumentacji.
 
-### Node.js (manual)
+### Rust (manual)
 
 ```bash
 git clone https://github.com/FlakM/czujka-librus.git
 cd czujka-librus
-npm install
 cp .env.example .env
 # Edytuj .env
-npm start
+cargo build --release
+./target/release/librus-notifications
 ```
 
 </details>
@@ -93,7 +93,7 @@ npm start
 
 ## ✨ Funkcje
 
-- 🤖 **Analiza AI** - GPT-4o-mini analizuje ogłoszenia i wiadomości
+- 🤖 **Analiza AI** - GPT-4o-mini analizuje ogłoszenia, wiadomości, oceny i zadania domowe
 - 📧 **E-mail z HTML** - piękne, responsywne powiadomienia
 - 🎯 **Inteligentna pilność** - AI rozpoznaje co naprawdę wymaga uwagi
 - 👨‍👩‍👧 **Multi-recipient** - wysyłaj do wielu odbiorców
@@ -169,7 +169,7 @@ EMAIL_TO=odbiorca1@example.com,odbiorca2@example.com
                    Wyodrębnia
 ```
 
-**Tech stack:** Node.js 20, SQLite, OpenAI API, Nodemailer, Nix
+**Tech stack:** Rust (Tokio), SQLite, OpenAI API, Lettre, Nix
 
 ---
 

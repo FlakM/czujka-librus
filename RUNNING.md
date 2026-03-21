@@ -10,7 +10,7 @@ Ten dokument zawiera szczegółowe instrukcje uruchamiania aplikacji w różnych
 - [Docker Compose](#-docker-compose)
 - [Nix](#-nix)
 - [NixOS (systemd)](#-nixos-systemd)
-- [Node.js (natywnie)](#-nodejs-natywnie)
+- [Rust (natywnie)](#-rust-natywnie)
 - [Systemd (inne dystrybucje)](#-systemd-inne-dystrybucje)
 
 ---
@@ -183,11 +183,9 @@ EMAIL_TO=twoj@email.com \
 # Wejdź do dev shell
 nix develop
 
-# Zainstaluj dependencies
-npm install
-
-# Uruchom
-npm start
+# Zbuduj i uruchom
+cargo build --release
+./target/release/librus-notifications
 ```
 
 ### Z direnv (automatyczny shell)
@@ -304,7 +302,7 @@ Zobacz [NIXOS_MODULE.md](NIXOS_MODULE.md) dla:
 
 ---
 
-## 📦 Node.js (natywnie)
+## 📦 Rust (natywnie)
 
 ### Instalacja
 
@@ -313,22 +311,15 @@ Zobacz [NIXOS_MODULE.md](NIXOS_MODULE.md) dla:
 git clone https://github.com/FlakM/czujka-librus.git
 cd czujka-librus
 
-# Zainstaluj Node.js 20+ (jeśli nie masz)
+# Zainstaluj Rust (jeśli nie masz)
+# https://www.rust-lang.org/tools/install
+
+# Zainstaluj build tools (Linux)
 # Ubuntu/Debian:
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+sudo apt-get install build-essential
 
-# Fedora:
-sudo dnf install nodejs
-
-# macOS:
-brew install node@20
-
-# Zainstaluj dependencies
-npm install
-
-# Rebuild native modules (jeśli potrzebne)
-npm rebuild better-sqlite3
+# Zbuduj binarkę
+cargo build --release
 ```
 
 ### Konfiguracja
@@ -345,16 +336,13 @@ nano .env  # lub vim, code, etc.
 
 ```bash
 # Jednorazowe uruchomienie
-npm start
+./target/release/librus-notifications
 
 # Z custom log level
-LOG_LEVEL=DEBUG npm start
+LOG_LEVEL=DEBUG ./target/release/librus-notifications
 
 # Test bez wysyłania emaili
-SEND_EMAIL=false npm start
-
-# Bezpośrednie uruchomienie
-node index.js
+SEND_EMAIL=false ./target/release/librus-notifications
 ```
 
 ### Czyszczenie bazy danych (re-process)
@@ -362,7 +350,7 @@ node index.js
 ```bash
 # Usuń bazę, aby ponownie przetworzyć wszystkie elementy
 rm librus.db
-npm start
+./target/release/librus-notifications
 ```
 
 ---
@@ -532,19 +520,12 @@ sudo chmod 600 /etc/czujka-librus/credentials.env
 sudo chown root:root /etc/czujka-librus/credentials.env
 ```
 
-### Native Node.js
+### Native Rust
 
-**Problem:** better-sqlite3 compilation errors
+**Problem:** Brak zbudowanej binarki
 ```bash
-# Zainstaluj build tools
-# Ubuntu/Debian:
-sudo apt-get install build-essential python3
-
-# Fedora:
-sudo dnf install gcc-c++ make python3
-
-# Rebuild
-npm rebuild better-sqlite3
+# Zbuduj release
+cargo build --release
 ```
 
 **Problem:** Zmienne środowiskowe nie ładują się
@@ -553,7 +534,7 @@ npm rebuild better-sqlite3
 ls -la .env
 
 # Testuj z bezpośrednimi zmiennymi
-LIBRUS_USERNAME=xxx LIBRUS_PASSWORD=xxx npm start
+LIBRUS_USERNAME=xxx LIBRUS_PASSWORD=xxx ./target/release/librus-notifications
 ```
 
 ---
@@ -570,7 +551,7 @@ docker logs -f container_name
 journalctl -u czujka-librus -f
 
 # Native
-npm start  # logi na stdout
+./target/release/librus-notifications  # logi na stdout
 ```
 
 ### Sprawdzanie ostatniego uruchomienia

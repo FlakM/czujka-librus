@@ -84,7 +84,6 @@ in
         ExecStart = "${cfg.package}/bin/librus-notifications";
         EnvironmentFile = cfg.environmentFile;
         Environment = [
-          "NODE_ENV=production"
           "DB_PATH=${cfg.dataDir}/librus.db"
         ];
         StandardOutput = "journal";

@@ -7,9 +7,7 @@ Wants=network-online.target
 Type=oneshot
 User=%i
 WorkingDirectory=/home/%i/librus-notifications
-ExecStart=/usr/bin/node index.js
-
-Environment="NODE_ENV=production"
+ExecStart=/usr/local/bin/librus-notifications
 EnvironmentFile=/etc/librus-notifications/credentials.env
 
 StandardOutput=journal

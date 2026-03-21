@@ -3,6 +3,7 @@ mod email;
 mod logger;
 mod models;
 mod openai;
+mod text_utils;
 
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -49,7 +50,9 @@ async fn main() -> Result<()> {
     }
 
     tracing::info!("Authenticating with Librus");
-    let mut client = Client::from_env().await.context("Librus authentication failed")?;
+    let mut client = Client::from_env()
+        .await
+        .context("Librus authentication failed")?;
     tracing::info!("Authentication successful");
 
     let new_announcements = fetch_new_announcements(&client, &db).await?;
@@ -57,7 +60,11 @@ async fn main() -> Result<()> {
     let new_grades = fetch_new_grades(&client, &db).await?;
     let new_homeworks = fetch_new_homeworks(&client, &db).await?;
 
-    if new_announcements.is_empty() && new_messages.is_empty() && new_grades.is_empty() && new_homeworks.is_empty() {
+    if new_announcements.is_empty()
+        && new_messages.is_empty()
+        && new_grades.is_empty()
+        && new_homeworks.is_empty()
+    {
         tracing::info!("No new items to process");
         return Ok(());
     }
@@ -199,7 +206,18 @@ async fn fetch_new_announcements(client: &Client, db: &Database) -> Result<Vec<A
         .and_then(|val| val.parse::<usize>().ok())
         .unwrap_or(50);
 
-    let notices = client.school_notices_latest(limit).await?;
+    let notices = match client.school_notices().await {
+        Ok(response) => {
+            let mut notices = response.school_notices;
+            notices.sort_by(|a, b| b.creation_date.cmp(&a.creation_date));
+            notices.truncate(limit);
+            notices
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to fetch school notices, skipping announcements");
+            return Ok(Vec::new());
+        }
+    };
     let mut author_cache: HashMap<i32, String> = HashMap::new();
     let mut new_announcements = Vec::new();
 
@@ -271,7 +289,42 @@ async fn fetch_new_messages(client: &mut Client, db: &Database) -> Result<Vec<Me
             continue;
         }
 
-        let body = Client::decode_message_content(&message.content).unwrap_or_default();
+        // Skip messages older than 30 days
+        if !text_utils::is_within_days(&message.send_date, 30) {
+            continue;
+        }
+
+        let raw_body = match client.message(&message.message_id).await {
+            Ok(detail) => Client::decode_message_content(&detail.message).unwrap_or_default(),
+            Err(e) => {
+                tracing::warn!(
+                    message_id = %message.message_id,
+                    error = %e,
+                    "Failed to fetch full message, using truncated content"
+                );
+                Client::decode_message_content(&message.content).unwrap_or_default()
+            }
+        };
+
+        // Clean the message body
+        let body = text_utils::clean_message_body(&raw_body);
+
+        // Skip simple acknowledgments
+        if text_utils::is_simple_acknowledgment(&body) {
+            tracing::debug!(
+                message_id = %message.message_id,
+                "Skipping simple acknowledgment message"
+            );
+            db.save_message(&MessageItem {
+                id: message.message_id.clone(),
+                title: message.topic.clone(),
+                body: body.clone(),
+                date: message.send_date.clone(),
+                user: message.sender_name.clone(),
+            })?;
+            continue;
+        }
+
         let item = MessageItem {
             id: message.message_id.clone(),
             title: message.topic,
@@ -462,7 +515,10 @@ async fn fetch_new_homeworks(client: &Client, db: &Database) -> Result<Vec<Homew
     if new_homeworks.is_empty() {
         tracing::info!("No new homework");
     } else {
-        tracing::info!(count = new_homeworks.len(), "Found new homework assignments");
+        tracing::info!(
+            count = new_homeworks.len(),
+            "Found new homework assignments"
+        );
     }
 
     Ok(new_homeworks)
