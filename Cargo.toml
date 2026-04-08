@@ -9,7 +9,7 @@ path = "rust/main.rs"
 
 [dependencies]
 anyhow = "1"
-librus-rs = { git = "https://github.com/FlakM/librus-rs", rev = "c2d8440" }
+librus-rs = { git = "https://github.com/FlakM/librus-rs", rev = "fc9835b" }
 tokio = { version = "1", features = ["full"] }
 dotenvy = "0.15"
 serde = { version = "1", features = ["derive"] }
