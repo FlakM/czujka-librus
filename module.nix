@@ -53,6 +53,18 @@ in
       example = [ "daily" "*-*-* 08:00:00" ];
     };
 
+    calendarId = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = "Google calendar ID to receive Librus events";
+    };
+
+    calendarCredentialsFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      description = "SOPS-managed JSON file containing client_id, client_secret and refresh_token";
+    };
+
     persistent = mkOption {
       type = types.bool;
       default = true;
@@ -61,6 +73,10 @@ in
   };
 
   config = mkIf cfg.enable {
+    assertions = [{
+      assertion = (cfg.calendarId == null) == (cfg.calendarCredentialsFile == null);
+      message = "Librus calendarId and calendarCredentialsFile must be configured together";
+    }];
     users.users.${cfg.user} = mkIf (cfg.user == "librus-notifications") {
       isSystemUser = true;
       group = cfg.group;
@@ -75,6 +91,10 @@ in
       description = "Librus Notifications Service";
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
+      environment = optionalAttrs (cfg.calendarId != null) {
+        GOOGLE_CALENDAR_ID = cfg.calendarId;
+        GOOGLE_CALENDAR_CREDENTIALS_FILE = cfg.calendarCredentialsFile;
+      };
 
       serviceConfig = {
         Type = "oneshot";

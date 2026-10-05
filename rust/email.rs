@@ -8,7 +8,7 @@ use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-use crate::models::{Analysis, AnnouncementItem, GradeItem, HomeworkItem, MessageItem};
+use crate::models::{Analysis, AnnouncementItem, GradeItem, HomeworkItem, MessageItem, RemarkItem};
 
 static BOLD_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\*\*([^*]+)\*\*").unwrap());
 static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]*>").unwrap());
@@ -242,7 +242,7 @@ fn generate_html_email(
 <body>
   <div class="header">
     <h1>📚 Powiadomienia z Librusa</h1>
-    <div class="date">Emilka • Klasa 1A SP ETE</div>
+    <div class="date">Emilka • Klasa 2A SP ETE</div>
   </div>
 "#,
     );
@@ -404,7 +404,7 @@ fn generate_html_email(
   <div class="section">
     <div class="section-header">
       <span class="section-icon">📝</span>
-      <h2 class="section-title">Zadania domowe</h2>
+      <h2 class="section-title">Zadania i terminarz</h2>
       {}
     </div>
     <div class="summary-box">
@@ -440,7 +440,7 @@ fn generate_html_email(
 "#,
                 idx + 1,
                 item.subject,
-                item.title,
+                format_args!("{}: {}", item.kind, item.title),
                 item.user,
                 format_date(&item.from),
                 format_date(&item.to),
@@ -475,10 +475,10 @@ pub async fn send_notification(
     grades: &[GradeItem],
     homework: &[HomeworkItem],
 ) -> Result<()> {
-    let has_announcements = announcements_data.map_or(false, |d| !d.key_points.is_empty());
-    let has_messages = messages_data.map_or(false, |d| !d.key_points.is_empty());
-    let has_grades = grades_data.map_or(false, |d| !d.key_points.is_empty());
-    let has_homework = homework_data.map_or(false, |d| !d.key_points.is_empty());
+    let has_announcements = announcements_data.is_some_and(|d| !d.key_points.is_empty());
+    let has_messages = messages_data.is_some_and(|d| !d.key_points.is_empty());
+    let has_grades = grades_data.is_some_and(|d| !d.key_points.is_empty());
+    let has_homework = homework_data.is_some_and(|d| !d.key_points.is_empty());
 
     if !has_announcements && !has_messages && !has_grades && !has_homework {
         tracing::info!("No new items to notify about");
@@ -499,9 +499,9 @@ pub async fn send_notification(
         urgencies.push(data.urgency.as_str());
     }
 
-    let max_urgency = if urgencies.iter().any(|u| *u == "PILNE") {
+    let max_urgency = if urgencies.contains(&"PILNE") {
         "PILNE"
-    } else if urgencies.iter().any(|u| *u == "NORMALNE") {
+    } else if urgencies.contains(&"NORMALNE") {
         "NORMALNE"
     } else {
         "NIEPILNE"
@@ -523,6 +523,33 @@ pub async fn send_notification(
         homework,
     );
 
+    send_email(&subject, html).await
+}
+
+fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn remark_html(remark: &RemarkItem) -> Result<String> {
+    if remark.content.trim().is_empty() {
+        return Err(anyhow!("Refusing to send an empty uwaga"));
+    }
+    Ok(format!("<html><body><h2>Uwaga — {}</h2><p>{} · {} · {}</p><div style=\"white-space:pre-wrap\">{}</div><p><a href=\"https://synergia.librus.pl/uwagi\">Otwórz uwagi w Librusie</a></p></body></html>",
+        escape_html(&remark.kind), escape_html(&remark.date), escape_html(&remark.teacher),
+        escape_html(&remark.category), escape_html(&remark.content)))
+}
+
+pub async fn send_remark(remark: &RemarkItem) -> Result<()> {
+    let html = remark_html(remark)?;
+    let subject = format!("[Librus] Uwaga: {} — {}", remark.kind, remark.date);
+    send_email(&subject, html).await
+}
+
+async fn send_email(subject: &str, html: String) -> Result<()> {
     if !should_send_email() {
         tracing::info!("EMAIL SENDING DISABLED - Notification content:");
         println!("\n{}", "=".repeat(80));
@@ -531,7 +558,7 @@ pub async fn send_notification(
         let preview = TAG_RE.replace_all(&html, " ");
         let preview = preview.split_whitespace().collect::<Vec<_>>().join(" ");
         let preview = if preview.len() > 500 {
-            format!("{}...", &preview[..500])
+            format!("{}...", preview.chars().take(500).collect::<String>())
         } else {
             preview
         };
@@ -589,7 +616,6 @@ pub async fn send_notification(
     };
 
     tracing::info!(
-        urgency = max_urgency,
         recipients = recipients.join(","),
         recipient_count = recipients.len(),
         "Sending email notification"
@@ -601,11 +627,37 @@ pub async fn send_notification(
         .map_err(|err| anyhow!(err.to_string()))?;
 
     tracing::info!(
-        urgency = max_urgency,
         recipients = recipients.join(","),
         recipient_count = recipients.len(),
         "Email notification sent successfully"
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remark_is_visible_verbatim_without_ai_or_collapsed_details() {
+        let remark = RemarkItem {
+            id: "1".into(),
+            content: "Pełna uwaga <ważne>\nDruga linia".into(),
+            date: "2026-10-04".into(),
+            teacher: "Nauczyciel".into(),
+            kind: "Negatywna".into(),
+            category: "Zachowanie".into(),
+        };
+        let html = remark_html(&remark).unwrap();
+        assert!(html.contains("Pełna uwaga &lt;ważne&gt;\nDruga linia"));
+        assert!(html.contains("https://synergia.librus.pl/uwagi"));
+        assert!(!html.contains("<details>"));
+        assert!(!html.contains("Podsumowanie"));
+        assert!(remark_html(&RemarkItem {
+            content: " \n ".into(),
+            ..remark
+        })
+        .is_err());
+    }
 }

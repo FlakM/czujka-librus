@@ -45,3 +45,25 @@ pub struct Analysis {
     #[serde(rename = "keyPoints")]
     pub key_points: Vec<String>,
 }
+
+#[derive(Debug, Clone)]
+pub struct RemarkItem {
+    pub id: String,
+    pub content: String,
+    pub date: String,
+    pub teacher: String,
+    pub kind: String,
+    pub category: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CalendarEvent {
+    pub id: String,
+    pub title: String,
+    pub date: String,
+    pub end_date: String,
+    pub time_from: Option<String>,
+    pub time_to: Option<String>,
+    pub description: String,
+    pub source_url: String,
+}

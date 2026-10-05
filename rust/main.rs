@@ -1,8 +1,10 @@
+mod calendar;
 mod db;
 mod email;
 mod logger;
 mod models;
 mod openai;
+mod synergia;
 mod text_utils;
 
 use std::collections::{HashMap, HashSet};
@@ -12,7 +14,7 @@ use anyhow::{Context, Result};
 use librus_rs::Client;
 
 use crate::db::Database;
-use crate::email::send_notification;
+use crate::email::{send_notification, send_remark};
 use crate::models::{AnnouncementItem, GradeItem, HomeworkItem, MessageItem};
 use crate::openai::OpenAiClient;
 
@@ -25,8 +27,45 @@ async fn main() -> Result<()> {
 
     ensure_required_env()?;
 
+    let web = synergia::SynergiaClient::from_env()
+        .await
+        .context("Librus web authentication failed")?;
+    let remarks = web.remarks().await?;
+    let events =
+        if calendar::GoogleCalendar::configured() || env::args().any(|arg| arg == "--check") {
+            web.events(chrono::Local::now().date_naive()).await?
+        } else {
+            Vec::new()
+        };
+    if env::args().any(|arg| arg == "--check") {
+        tracing::info!(
+            remarks = remarks.len(),
+            events = events.len(),
+            "Librus web access verified; no email, calendar writes or database changes"
+        );
+        return Ok(());
+    }
+
     let db_path = env::var("DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string());
     let db = Database::new(&db_path).context("Failed to initialize database")?;
+
+    let sent = db.existing_remark_ids()?;
+    for remark in remarks.iter().filter(|remark| !sent.contains(&remark.id)) {
+        send_remark(remark).await?;
+        if env::var("SEND_EMAIL").as_deref() == Ok("true") {
+            db.mark_remark_sent(remark)?;
+        }
+    }
+    if calendar::GoogleCalendar::configured() {
+        match calendar::GoogleCalendar::from_env().await {
+            Ok(calendar) => {
+                if let Err(err) = calendar.sync(&db, &events).await {
+                    tracing::error!(error = %err, "Calendar sync failed; will retry next run");
+                }
+            }
+            Err(err) => tracing::error!(error = %err, "Calendar setup failed; will retry next run"),
+        }
+    }
 
     tracing::info!("Starting Librus notification service");
 
@@ -58,7 +97,8 @@ async fn main() -> Result<()> {
     let new_announcements = fetch_new_announcements(&client, &db).await?;
     let new_messages = fetch_new_messages(&mut client, &db).await?;
     let new_grades = fetch_new_grades(&client, &db).await?;
-    let new_homeworks = fetch_new_homeworks(&client, &db).await?;
+    let categories = web.homework_categories().await?;
+    let new_homeworks = fetch_new_homeworks(&client, &db, &categories).await?;
 
     if new_announcements.is_empty()
         && new_messages.is_empty()
@@ -310,10 +350,11 @@ async fn fetch_new_messages(client: &mut Client, db: &Database) -> Result<Vec<Me
         let body = text_utils::clean_message_body(&raw_body);
 
         // Skip simple acknowledgments
-        if text_utils::is_simple_acknowledgment(&body) {
+        if text_utils::is_simple_acknowledgment(&body) || text_utils::is_remark_notification(&body)
+        {
             tracing::debug!(
                 message_id = %message.message_id,
-                "Skipping simple acknowledgment message"
+                "Skipping acknowledgment or automatic uwagi notice"
             );
             db.save_message(&MessageItem {
                 id: message.message_id.clone(),
@@ -446,7 +487,11 @@ async fn fetch_new_grades(client: &Client, db: &Database) -> Result<Vec<GradeIte
     Ok(new_grades)
 }
 
-async fn fetch_new_homeworks(client: &Client, db: &Database) -> Result<Vec<HomeworkItem>> {
+async fn fetch_new_homeworks(
+    client: &Client,
+    db: &Database,
+    categories: &HashMap<i64, String>,
+) -> Result<Vec<HomeworkItem>> {
     let existing_ids = db.existing_homework_ids()?;
     let response = client.homeworks().await?;
 
@@ -501,7 +546,10 @@ async fn fetch_new_homeworks(client: &Client, db: &Database) -> Result<Vec<Homew
             id: homework_id,
             subject: subject_name,
             title,
-            kind: "Zadanie domowe".to_string(),
+            kind: categories
+                .get(&hw.category.id)
+                .cloned()
+                .unwrap_or_else(|| "Wpis terminarza".to_string()),
             from: hw.date.clone(),
             to: hw.date.clone(),
             content: hw.content,
@@ -530,9 +578,9 @@ fn derive_title(content: &str) -> String {
         return "Zadanie domowe".to_string();
     }
     let first_line = trimmed.lines().next().unwrap_or(trimmed).trim();
-    if first_line.len() <= 60 {
+    if first_line.chars().count() <= 60 {
         first_line.to_string()
     } else {
-        format!("{}...", &first_line[..60])
+        format!("{}...", first_line.chars().take(60).collect::<String>())
     }
 }

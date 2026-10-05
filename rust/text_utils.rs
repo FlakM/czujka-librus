@@ -58,6 +58,13 @@ pub fn is_simple_acknowledgment(body: &str) -> bool {
     short && ack_patterns.iter().any(|p| clean.contains(p))
 }
 
+pub fn is_remark_notification(body: &str) -> bool {
+    let body = body.to_lowercase();
+    body.contains("wiadomość została wygenerowana automatycznie")
+        && body.contains("uwagi")
+        && (body.contains("przejdź do menu") || body.contains("uwagi o uczniu"))
+}
+
 pub fn is_within_days(date_str: &str, days: i64) -> bool {
     use chrono::{NaiveDateTime, Utc};
     let now = Utc::now().naive_utc();
@@ -93,5 +100,17 @@ mod tests {
     fn test_remove_thread_quotes() {
         let input = "New message\n-----\nOld quoted message";
         assert_eq!(clean_message_body(input), "New message");
+    }
+
+    #[test]
+    fn generic_uwagi_notices_are_suppressed_but_teacher_messages_are_kept() {
+        let notice = "Rodzicu, nauczyciel dodał uwagę. Przejdź do menu: Uczeń i wybierz: Uwagi. Wiadomość została wygenerowana automatycznie.";
+        assert!(is_remark_notification(notice));
+        assert!(!is_remark_notification(
+            "Proszę zapoznać się z uwagą. Dziś uczennica przeszkadzała na lekcji."
+        ));
+        assert!(!is_remark_notification(
+            "Nowa ocena. Wiadomość została wygenerowana automatycznie."
+        ));
     }
 }

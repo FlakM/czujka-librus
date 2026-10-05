@@ -30,7 +30,7 @@
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = [ pkgs.openssl ];
 
-          doCheck = false;
+          doCheck = true;
         };
 
         dockerImage = pkgs.dockerTools.buildLayeredImage {

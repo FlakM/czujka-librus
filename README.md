@@ -93,7 +93,9 @@ cargo build --release
 
 ## ✨ Funkcje
 
-- 🤖 **Analiza AI** - GPT-4o-mini analizuje ogłoszenia, wiadomości, oceny i zadania domowe
+- 🤖 **Analiza AI** - GPT-6.1 Sol analizuje ogłoszenia, wiadomości, oceny i zadania
+- 📋 **Uwagi** - pełna treść każdej uwagi w osobnym e-mailu, bez streszczania i pustych automatycznych zawiadomień
+- 📅 **Terminarz** - opcjonalna synchronizacja z wybranym kalendarzem Google: tworzenie, aktualizowanie i usuwanie odwołanych wydarzeń
 - 📧 **E-mail z HTML** - piękne, responsywne powiadomienia
 - 🎯 **Inteligentna pilność** - AI rozpoznaje co naprawdę wymaga uwagi
 - 👨‍👩‍👧 **Multi-recipient** - wysyłaj do wielu odbiorców
@@ -114,6 +116,7 @@ LIBRUS_PASSWORD=twoje_hasło
 
 # OpenAI
 OPENAI_API_KEY=sk-proj-xxx
+OPENAI_MODEL=gpt-6.1-sol
 
 # Email
 SEND_EMAIL=true
@@ -124,6 +127,23 @@ EMAIL_PASSWORD=hasło_aplikacji
 EMAIL_FROM=Czujka <czujka@twojadomena.com>
 EMAIL_TO=odbiorca1@example.com,odbiorca2@example.com
 ```
+
+### Uwagi i terminarz
+
+Uwagi pobierane są z `/uwagi` i wysyłane w całości, bez AI. Przy pierwszym uruchomieniu zostaną wysłane wszystkie aktualnie widoczne uwagi. Wysłane uwagi zapisywane są dopiero po udanym dostarczeniu e-maila.
+
+Opcjonalna synchronizacja kalendarza wymaga włączonego Google Calendar API, dostępu do zapisu w wybranym kalendarzu oraz tokena OAuth ze scope `https://www.googleapis.com/auth/calendar`:
+
+```env
+GOOGLE_CALENDAR_ID=identyfikator_wspólnego_kalendarza
+GOOGLE_CALENDAR_CREDENTIALS_FILE=/run/secrets/librus-google-calendar
+```
+
+Plik JSON z poświadczeniami, zarządzany przez SOPS, zawiera `client_id`, `client_secret` i `refresh_token`. Na NixOS można użyć opcji `services.librus-notifications.calendarId` i `calendarCredentialsFile`.
+
+Synchronizacja obejmuje bieżący miesiąc i dwa kolejne, w tym nieobecności nauczycieli. Wydarzenia bez jawnych godzin są całodniowe; godziny jawne używają strefy `Europe/Warsaw`. Zmiany aktualizują istniejące wpisy, a odwołane przyszłe wydarzenia są usuwane wyłącznie w tym zakresie i wyłącznie spośród wpisów utworzonych przez usługę. Bez konfiguracji kalendarza e-maile działają niezależnie.
+
+`librus-notifications --check` sprawdza dostęp do uwag i terminarza bez wysyłania e-maili, zapisu w kalendarzu i zmian w bazie.
 
 <details>
 <summary><b>📨 Konfiguracja email (Fastmail / Gmail)</b></summary>

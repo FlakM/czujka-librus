@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::models::{AnnouncementItem, GradeItem, HomeworkItem, MessageItem};
+use crate::models::{AnnouncementItem, GradeItem, HomeworkItem, MessageItem, RemarkItem};
 
 pub struct Database {
     conn: Connection,
@@ -66,6 +66,15 @@ impl Database {
               teacher TEXT,
               fetched_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS remarks_sent (
+              id TEXT PRIMARY KEY,
+              sent_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS calendar_sync (
+              id TEXT PRIMARY KEY,
+              payload TEXT NOT NULL,
+              synced_at TEXT NOT NULL
+            );
             "#,
         )?;
         Ok(())
@@ -76,9 +85,7 @@ impl Database {
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut ids = HashSet::new();
         for id in rows {
-            if let Ok(id) = id {
-                ids.insert(id);
-            }
+            ids.insert(id?);
         }
         Ok(ids)
     }
@@ -156,6 +163,49 @@ impl Database {
                 now
             ],
         )?;
+        Ok(())
+    }
+
+    pub fn existing_remark_ids(&self) -> Result<HashSet<String>> {
+        self.existing_ids("remarks_sent")
+    }
+
+    pub fn mark_remark_sent(&self, remark: &RemarkItem) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO remarks_sent (id, sent_at) VALUES (?, ?)",
+            params![remark.id, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    pub fn calendar_payload(&self, id: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT payload FROM calendar_sync WHERE id = ?",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn mark_calendar_synced(&self, id: &str, payload: &str) -> Result<()> {
+        self.conn.execute("INSERT INTO calendar_sync (id, payload, synced_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, synced_at = excluded.synced_at",
+            params![id, payload, Utc::now().to_rfc3339()])?;
+        Ok(())
+    }
+
+    pub fn calendar_entries(&self, prefix: &str) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, payload FROM calendar_sync WHERE substr(id, 1, length(?1)) = ?1",
+        )?;
+        let rows = stmt.query_map([prefix], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn forget_calendar_entry(&self, id: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM calendar_sync WHERE id = ?", [id])?;
         Ok(())
     }
 }
