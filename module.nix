@@ -42,6 +42,7 @@ in
         - OPENAI_API_KEY
         - SEND_EMAIL (optional)
         - EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, EMAIL_TO (if SEND_EMAIL=true)
+        - VIKUNJA_URL, VIKUNJA_USERNAME, VIKUNJA_PASSWORD, VIKUNJA_PROJECT_ID (optional, enables Vikunja task sync)
         - LOG_LEVEL (optional)
       '';
     };

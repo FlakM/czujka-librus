@@ -94,9 +94,10 @@ cargo build --release
 ## ✨ Funkcje
 
 - 🤖 **Analiza AI** - GPT-6.1 Sol analizuje ogłoszenia, wiadomości, oceny i zadania
-- 📋 **Uwagi** - pełna treść każdej uwagi w osobnym e-mailu, bez streszczania i pustych automatycznych zawiadomień
+- 📋 **Uwagi** - wszystkie nowe uwagi w jednym e-mailu, pełna treść, bez streszczania i pustych automatycznych zawiadomień
+- ✅ **Integracja z Vikunja** - obowiązki wymagające działania (wpłaty, przybory, nauka) lądują jako zadania z terminami w wybranym projekcie
 - 📅 **Terminarz** - opcjonalna synchronizacja z wybranym kalendarzem Google: tworzenie, aktualizowanie i usuwanie odwołanych wydarzeń
-- 📧 **E-mail z HTML** - piękne, responsywne powiadomienia
+- 📧 **E-mail z HTML i wersją tekstową** - piękne, responsywne powiadomienia z tematem opisującym sedno (AI pisze też tytuł sekcji)
 - 🎯 **Inteligentna pilność** - AI rozpoznaje co naprawdę wymaga uwagi
 - 👨‍👩‍👧 **Multi-recipient** - wysyłaj do wielu odbiorców
 - 🗄️ **SQLite tracking** - pamięta co już przetworzył
@@ -126,6 +127,13 @@ EMAIL_USER=twoj@email.com
 EMAIL_PASSWORD=hasło_aplikacji
 EMAIL_FROM=Czujka <czujka@twojadomena.com>
 EMAIL_TO=odbiorca1@example.com,odbiorca2@example.com
+
+# Vikunja (opcjonalnie) — zadania wymagające działania rodzica/dziecka
+# trafiają do wskazanego projektu z terminami; bez tych zmiennych synchronizacja jest wyłączona
+VIKUNJA_URL=https://tasks.example.com
+VIKUNJA_USERNAME=bot
+VIKUNJA_PASSWORD=hasło
+VIKUNJA_PROJECT_ID=29
 ```
 
 ### Uwagi i terminarz
@@ -138,6 +146,8 @@ Opcjonalna synchronizacja kalendarza wymaga włączonego Google Calendar API, do
 GOOGLE_CALENDAR_ID=identyfikator_wspólnego_kalendarza
 GOOGLE_CALENDAR_CREDENTIALS_FILE=/run/secrets/librus-google-calendar
 ```
+
+Uwaga: synchronizacja zawsze używa jednego kalendarza zdefiniowanego w `GOOGLE_CALENDAR_ID` — jeśli masz kalendarz rodzinny, utwórz osobny (np. „Szkoła Emilka") i wskaż jego identyfikator, aby nie mieszać wpisów szkolnych z rodzinnymi.
 
 Plik JSON z poświadczeniami, zarządzany przez SOPS, zawiera `client_id`, `client_secret` i `refresh_token`. Na NixOS można użyć opcji `services.librus-notifications.calendarId` i `calendarCredentialsFile`.
 

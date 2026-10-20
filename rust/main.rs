@@ -6,17 +6,20 @@ mod models;
 mod openai;
 mod synergia;
 mod text_utils;
+mod vikunja;
 
 use std::collections::{HashMap, HashSet};
 use std::env;
 
 use anyhow::{Context, Result};
 use librus_rs::Client;
+use sha2::{Digest, Sha256};
 
 use crate::db::Database;
-use crate::email::{send_notification, send_remark};
-use crate::models::{AnnouncementItem, GradeItem, HomeworkItem, MessageItem};
+use crate::email::{send_notification, send_remarks};
+use crate::models::{ActionTask, AnnouncementItem, GradeItem, HomeworkItem, MessageItem};
 use crate::openai::OpenAiClient;
+use crate::vikunja::{sync_tasks, VikunjaClient};
 
 const DEFAULT_DB_PATH: &str = "./librus.db";
 
@@ -50,10 +53,27 @@ async fn main() -> Result<()> {
     let db = Database::new(&db_path).context("Failed to initialize database")?;
 
     let sent = db.existing_remark_ids()?;
-    for remark in remarks.iter().filter(|remark| !sent.contains(&remark.id)) {
-        send_remark(remark).await?;
-        if env::var("SEND_EMAIL").as_deref() == Ok("true") {
-            db.mark_remark_sent(remark)?;
+    let unsent_remarks: Vec<_> = remarks
+        .iter()
+        .filter(|remark| !sent.contains(&remark.id))
+        .cloned()
+        .collect();
+    if !unsent_remarks.is_empty() {
+        match send_remarks(&unsent_remarks).await {
+            Ok(()) => {
+                if env::var("SEND_EMAIL").as_deref() == Ok("true") {
+                    for remark in &unsent_remarks {
+                        db.mark_remark_sent(remark)?;
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::error!(
+                    error = %err,
+                    count = unsent_remarks.len(),
+                    "Failed to send remarks email; will retry next run"
+                );
+            }
         }
     }
     if calendar::GoogleCalendar::configured() {
@@ -111,57 +131,127 @@ async fn main() -> Result<()> {
 
     let openai = OpenAiClient::from_env()?;
 
-    let announcements_analysis = if new_announcements.is_empty() {
-        None
-    } else {
+    // All four analyses are independent — run them concurrently.
+    let announcements_future = async {
+        if new_announcements.is_empty() {
+            return (None, false);
+        }
         tracing::info!("Analyzing announcements with OpenAI");
         match openai.summarize_announcements(&new_announcements).await {
-            Ok(result) => Some(result),
+            Ok(result) => (Some(result), true),
             Err(err) => {
                 tracing::error!(error = %err, "OpenAI analysis failed for announcements");
-                Some(fallback_announcements(&new_announcements))
+                (Some(fallback_announcements(&new_announcements)), false)
             }
         }
     };
-
-    let messages_analysis = if new_messages.is_empty() {
-        None
-    } else {
+    let messages_future = async {
+        if new_messages.is_empty() {
+            return (None, false);
+        }
         tracing::info!("Analyzing messages with OpenAI");
         match openai.summarize_messages(&new_messages).await {
-            Ok(result) => Some(result),
+            Ok(result) => (Some(result), true),
             Err(err) => {
                 tracing::error!(error = %err, "OpenAI analysis failed for messages");
-                Some(fallback_messages(&new_messages))
+                (Some(fallback_messages(&new_messages)), false)
             }
         }
     };
-
-    let grades_analysis = if new_grades.is_empty() {
-        None
-    } else {
+    let grades_future = async {
+        if new_grades.is_empty() {
+            return (None, false);
+        }
         tracing::info!("Analyzing grades with OpenAI");
         match openai.summarize_grades(&new_grades).await {
-            Ok(result) => Some(result),
+            Ok(result) => (Some(result), true),
             Err(err) => {
                 tracing::error!(error = %err, "OpenAI analysis failed for grades");
-                Some(fallback_grades(&new_grades))
+                (Some(fallback_grades(&new_grades)), false)
+            }
+        }
+    };
+    let homework_future = async {
+        if new_homeworks.is_empty() {
+            return (None, false);
+        }
+        tracing::info!("Analyzing homework with OpenAI");
+        match openai.summarize_homework(&new_homeworks).await {
+            Ok(result) => (Some(result), true),
+            Err(err) => {
+                tracing::error!(error = %err, "OpenAI analysis failed for homework");
+                (Some(fallback_homework(&new_homeworks)), false)
             }
         }
     };
 
-    let homework_analysis = if new_homeworks.is_empty() {
-        None
-    } else {
-        tracing::info!("Analyzing homework with OpenAI");
-        match openai.summarize_homework(&new_homeworks).await {
-            Ok(result) => Some(result),
+    let (
+        (announcements_analysis, announcements_ai_ok),
+        (messages_analysis, messages_ai_ok),
+        (grades_analysis, grades_ai_ok),
+        (homework_analysis, homework_ai_ok),
+    ) = tokio::join!(
+        announcements_future,
+        messages_future,
+        grades_future,
+        homework_future
+    );
+
+    // Collect action items for Vikunja: AI-extracted duties per section, with a
+    // deterministic fallback for homework (always actionable) when AI failed.
+    let mut pending_tasks: Vec<(String, ActionTask)> = Vec::new();
+    if announcements_ai_ok {
+        if let Some(analysis) = &announcements_analysis {
+            pending_tasks.extend(collect_tasks(
+                "ogloszenia",
+                analysis,
+                &new_announcements.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+            ));
+        }
+    }
+    if messages_ai_ok {
+        if let Some(analysis) = &messages_analysis {
+            pending_tasks.extend(collect_tasks(
+                "wiadomosci",
+                analysis,
+                &new_messages.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+            ));
+        }
+    }
+    if grades_ai_ok {
+        if let Some(analysis) = &grades_analysis {
+            pending_tasks.extend(collect_tasks(
+                "oceny",
+                analysis,
+                &new_grades.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+            ));
+        }
+    }
+    match (&homework_analysis, homework_ai_ok) {
+        (Some(analysis), true) => pending_tasks.extend(collect_tasks(
+            "zadania",
+            analysis,
+            &new_homeworks.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+        )),
+        (Some(_), false) => pending_tasks.extend(fallback_homework_tasks(&new_homeworks)),
+        (None, _) => {}
+    }
+
+    // Tasks are created before the email so the email can report them.
+    let mut tasks_created = None;
+    if !pending_tasks.is_empty() && VikunjaClient::configured() {
+        match sync_tasks(&db, &pending_tasks).await {
+            Ok(count) => {
+                if count > 0 {
+                    tracing::info!(count, "Created Vikunja tasks");
+                }
+                tasks_created = Some(count);
+            }
             Err(err) => {
-                tracing::error!(error = %err, "OpenAI analysis failed for homework");
-                Some(fallback_homework(&new_homeworks))
+                tracing::error!(error = %err, "Vikunja task sync failed; email continues without task note");
             }
         }
-    };
+    }
 
     send_notification(
         announcements_analysis.as_ref(),
@@ -172,11 +262,71 @@ async fn main() -> Result<()> {
         &new_messages,
         &new_grades,
         &new_homeworks,
+        tasks_created,
     )
     .await?;
 
     tracing::info!("Service completed successfully");
     Ok(())
+}
+
+/// Stable dedup key per (section, source items, task title): the DB records
+/// created keys so retries never duplicate tasks in Vikunja.
+fn collect_tasks(
+    section: &str,
+    analysis: &models::Analysis,
+    context_ids: &[String],
+) -> Vec<(String, ActionTask)> {
+    analysis
+        .tasks
+        .iter()
+        .filter(|task| !task.title.trim().is_empty())
+        .map(|task| {
+            let mut hasher = Sha256::new();
+            hasher.update(section.as_bytes());
+            hasher.update([0xFFu8]);
+            hasher.update(context_ids.join(",").as_bytes());
+            hasher.update(task.title.trim().as_bytes());
+            let digest = format!("{:x}", hasher.finalize());
+            (
+                format!("{}:{}", section, &digest[..16]),
+                ActionTask {
+                    title: truncate_title(task.title.trim(), 120),
+                    due: task.due.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
+fn fallback_homework_tasks(items: &[HomeworkItem]) -> Vec<(String, ActionTask)> {
+    items
+        .iter()
+        .map(|item| {
+            let mut hasher = Sha256::new();
+            hasher.update(b"zadania-fallback");
+            hasher.update(item.id.as_bytes());
+            let digest = format!("{:x}", hasher.finalize());
+            (
+                format!("zadania:{}", &digest[..16]),
+                ActionTask {
+                    title: truncate_title(
+                        &format!("{} — {} ({})", item.subject, item.kind, item.title),
+                        120,
+                    ),
+                    due: Some(item.to.clone()),
+                },
+            )
+        })
+        .collect()
+}
+
+fn truncate_title(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_string()
+    } else {
+        format!("{}…", text.chars().take(max - 1).collect::<String>())
+    }
 }
 
 fn ensure_required_env() -> Result<()> {
@@ -197,6 +347,8 @@ fn fallback_announcements(items: &[AnnouncementItem]) -> crate::models::Analysis
             items.len()
         ),
         key_points: items.iter().map(|item| item.title.clone()).collect(),
+        subject: None,
+        tasks: Vec::new(),
     }
 }
 
@@ -208,6 +360,8 @@ fn fallback_messages(items: &[MessageItem]) -> crate::models::Analysis {
             items.len()
         ),
         key_points: items.iter().map(|item| item.title.clone()).collect(),
+        subject: None,
+        tasks: Vec::new(),
     }
 }
 
@@ -222,6 +376,8 @@ fn fallback_grades(items: &[GradeItem]) -> crate::models::Analysis {
             .iter()
             .map(|item| format!("📚 {} | ⭐ **{}**", item.subject, item.value))
             .collect(),
+        subject: None,
+        tasks: Vec::new(),
     }
 }
 
@@ -236,6 +392,8 @@ fn fallback_homework(items: &[HomeworkItem]) -> crate::models::Analysis {
             .iter()
             .map(|item| format!("📝 **{}** - {}", item.subject, item.title))
             .collect(),
+        subject: None,
+        tasks: Vec::new(),
     }
 }
 

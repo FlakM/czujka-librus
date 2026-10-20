@@ -75,6 +75,11 @@ impl Database {
               payload TEXT NOT NULL,
               synced_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS vikunja_tasks (
+              item_key TEXT PRIMARY KEY,
+              task_id INTEGER NOT NULL,
+              created_at TEXT NOT NULL
+            );
             "#,
         )?;
         Ok(())
@@ -206,6 +211,18 @@ impl Database {
     pub fn forget_calendar_entry(&self, id: &str) -> Result<()> {
         self.conn
             .execute("DELETE FROM calendar_sync WHERE id = ?", [id])?;
+        Ok(())
+    }
+
+    pub fn existing_task_keys(&self) -> Result<HashSet<String>> {
+        self.existing_ids("vikunja_tasks")
+    }
+
+    pub fn mark_task_created(&self, key: &str, task_id: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO vikunja_tasks (item_key, task_id, created_at) VALUES (?, ?, ?)",
+            params![key, task_id, Utc::now().to_rfc3339()],
+        )?;
         Ok(())
     }
 }

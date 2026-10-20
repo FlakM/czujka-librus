@@ -1,5 +1,29 @@
 use serde::{Deserialize, Serialize};
 
+/// A single action item extracted by the AI, destined for the Vikunja list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionTask {
+    /// Imperative, self-contained title (Polish), e.g. "Wpłacić 30 zł na wycieczkę".
+    pub title: String,
+    /// Deadline as YYYY-MM-DD, when the source states one explicitly.
+    #[serde(default)]
+    pub due: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Analysis {
+    pub urgency: String,
+    pub summary: String,
+    #[serde(rename = "keyPoints")]
+    pub key_points: Vec<String>,
+    /// One-line gist of the section, used in the email subject (max ~70 chars).
+    #[serde(default)]
+    pub subject: Option<String>,
+    /// Actions requiring parent/child intervention, synced to Vikunja.
+    #[serde(default)]
+    pub tasks: Vec<ActionTask>,
+}
+
 #[derive(Debug, Clone)]
 pub struct MessageItem {
     pub id: String,
@@ -36,14 +60,6 @@ pub struct HomeworkItem {
     pub to: String,
     pub content: String,
     pub user: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Analysis {
-    pub urgency: String,
-    pub summary: String,
-    #[serde(rename = "keyPoints")]
-    pub key_points: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

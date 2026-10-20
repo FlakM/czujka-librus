@@ -64,6 +64,8 @@
             pkgs.rustfmt
             pkgs.clippy
             pkgs.stdenv.cc
+            pkgs.pkg-config
+            pkgs.openssl
           ];
 
           shellHook = ''

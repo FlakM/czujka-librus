@@ -34,8 +34,10 @@ PILNOŚĆ:
 - Pilność całego zestawu to najwyższa pilność istotnego punktu. Nie wyolbrzymiaj problemów.
 
 FORMAT:
-Zwróć tylko obiekt JSON: {"urgency":"PILNE|NORMALNE|NIEPILNE","summary":"...","keyPoints":["..."]}.
+Zwróć tylko obiekt JSON: {"urgency":"PILNE|NORMALNE|NIEPILNE","summary":"...","keyPoints":["..."],"subject":"...","tasks":[{"title":"...","due":"RRRR-MM-DD"}]}.
 summary: 1–3 krótkie zdania, najważniejsze działanie lub fakt na początku.
+subject: maksymalnie 70 znaków, sedno sekcji: najważniejszy obowiązek z terminem albo najważniejszy fakt. Bez zwrotów „powiadomienie”, „informacja”, „nowe wpisy” i bez prefiksów. Jeśli pozycje są nieistotne, puste pole.
+tasks: wyłącznie obowiązki wymagające działania rodzica lub dziecka (wpłata, podpis, przybory, przygotowanie, nauka, kontakt): jeden obowiązek = jedno zadanie. Tytuł zaczyna się od czasownika i zawiera przedmiot oraz termin, maks. 120 znaków. due to data wykonania RRRR-MM-DD gdy źródło ją podaje, w przeciwnym razie puste. Nie twórz zadań z samych informacji i ogłoszeń bez obowiązku. Gdy nic nie wymaga działania, tasks ma być pustą tablicą.
 keyPoints: uporządkowane według terminu, po jednym konkretnym działaniu lub fakcie; np. „📖 **06.10.2026** — powtórzyć Unit 1: sporty i dni tygodnia”.
 Nie pomijaj ważnych terminów dla zachowania arbitralnego limitu punktów. Nie dodawaj pustych punktów ani ogólników „sprawdź Librusa”.
 Jeśli wszystkie pozycje są nieistotne, keyPoints ma być pustą tablicą.
@@ -107,13 +109,30 @@ impl OpenAiClient {
             .content
             .clone();
 
-        let analysis: Analysis =
+        let mut analysis: Analysis =
             serde_json::from_str(&content).context("OpenAI JSON content parse failed")?;
+        // Drop tasks with unparseable or missing dates rather than rejecting the
+        // whole response — the title alone is still worth tracking.
+        for task in &mut analysis.tasks {
+            let valid_due = task
+                .due
+                .as_deref()
+                .and_then(|due| {
+                    chrono::NaiveDate::parse_from_str(due.trim(), "%Y-%m-%d")
+                        .ok()
+                        .map(|_| due.trim().to_string())
+                });
+            task.due = valid_due;
+        }
         if !matches!(analysis.urgency.as_str(), "PILNE" | "NORMALNE" | "NIEPILNE")
             || analysis
                 .key_points
                 .iter()
                 .any(|point| point.trim().is_empty())
+            || analysis
+                .tasks
+                .iter()
+                .any(|task| task.title.trim().is_empty())
         {
             return Err(anyhow!(
                 "OpenAI returned invalid urgency or empty key point"
