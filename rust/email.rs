@@ -9,7 +9,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 use crate::models::{
-    ActionTask, Analysis, AnnouncementItem, GradeItem, HomeworkItem, MessageItem, RemarkItem,
+    ActionTask, Analysis, AnnouncementItem, GradeItem, GradeKind, HomeworkItem, MessageItem,
+    RemarkItem,
 };
 use crate::vikunja::polish_weekday;
 
@@ -36,11 +37,17 @@ fn escape_html(text: &str) -> String {
 /// Escape HTML entities first, then turn the surviving `**` markers into
 /// <strong> — user-provided content can never inject markup this way.
 fn render_markdown(text: &str) -> String {
-    BOLD_RE.replace_all(&escape_html(text), "<strong>$1</strong>").to_string()
+    BOLD_RE
+        .replace_all(&escape_html(text), "<strong>$1</strong>")
+        .to_string()
 }
 
 fn strip_markdown(text: &str) -> String {
-    MARKDOWN_RE.replace_all(text, "").split_whitespace().collect::<Vec<_>>().join(" ")
+    MARKDOWN_RE
+        .replace_all(text, "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// "2026-10-20T14:30:00" → "20.10.2026 (pon)"
@@ -124,13 +131,12 @@ fn fallback_subjects(
     let grades_fallback = if grades.is_empty() {
         String::new()
     } else if grades.len() == 1 {
-        format!("⭐ {}: {}", grades[0].subject, grades[0].value)
+        format!("⭐ {}", grade_label(&grades[0]))
     } else {
         format!(
-            "⭐ {} nowych ocen (pierwsza: {} {})",
+            "⭐ {} nowych ocen (pierwsza: {})",
             grades.len(),
-            grades[0].subject,
-            grades[0].value
+            grade_label(&grades[0])
         )
     };
 
@@ -211,6 +217,34 @@ fn grade_class(value: &str) -> &'static str {
         '1' | '2' => "grade-bad",
         '3' => "grade-mid",
         _ => "grade-good",
+    }
+}
+
+fn grade_css_class(item: &GradeItem) -> &'static str {
+    match item.kind {
+        GradeKind::Numeric => grade_class(&item.value),
+        GradeKind::Text => "grade-text",
+    }
+}
+
+/// One-line label used in subjects and fallbacks, e.g. `Matematyka: 5` or
+/// `J. angielski: aktywność`.
+fn grade_label(item: &GradeItem) -> String {
+    match item.kind {
+        GradeKind::Numeric => format!("{}: {}", item.subject, item.value),
+        GradeKind::Text => format!("{}: {}", item.subject, item.category),
+    }
+}
+
+fn grade_heading(item: &GradeItem) -> String {
+    match item.kind {
+        GradeKind::Numeric => format!("{} — {}", item.subject, item.value),
+        GradeKind::Text => format!(
+            "{} — {} · {}",
+            item.subject,
+            item.category,
+            format_date_pl(&item.date)
+        ),
     }
 }
 
@@ -417,6 +451,7 @@ fn generate_html_email(
     .grade-good {{ background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border-color: #a7f3d0; }}
     .grade-mid {{ background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border-color: #fde68a; }}
     .grade-bad {{ background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%); border-color: #fecaca; }}
+    .grade-text {{ background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%); border-color: #c7d2fe; }}
     .tasks-note {{
       background: #ecfdf5;
       border: 1px solid #a7f3d0;
@@ -529,7 +564,10 @@ fn generate_html_email(
             messages.len()
         ));
 
-        for (idx, item) in sorted_by_date(messages, |item| &item.date).iter().enumerate() {
+        for (idx, item) in sorted_by_date(messages, |item| &item.date)
+            .iter()
+            .enumerate()
+        {
             let message_url = format!("https://synergia.librus.pl/wiadomosci/1/5/{}/f0", item.id);
             html.push_str(&format!(
                 r#"
@@ -561,7 +599,7 @@ fn generate_html_email(
       <span class="section-icon">⭐</span>
       <h2 class="section-title">Nowe oceny</h2>
       {}
-      <a href="https://synergia.librus.pl/przedmioty">Otwórz oceny ↗</a>
+      <a href="https://synergia.librus.pl/przegladaj_oceny/uczen">Otwórz oceny ↗</a>
     </div>
     <div class="summary-box">
       <div class="summary-title">Podsumowanie</div>
@@ -583,21 +621,29 @@ fn generate_html_email(
         ));
 
         for (idx, item) in grades.iter().enumerate() {
+            // A text grade *is* its description, so keep it visible. Numeric
+            // comments stay collapsed to keep the email short.
+            let body = match item.kind {
+                GradeKind::Text => format!(
+                    r#"<div class="item-content">{}</div>"#,
+                    escape_html(&item.description)
+                ),
+                GradeKind::Numeric => format!(
+                    r#"<details><summary>Pokaż szczegóły</summary><div class="item-content">{}</div></details>"#,
+                    escape_html(&item.description)
+                ),
+            };
             html.push_str(&format!(
                 r#"
     <div class="item grade-item {}">
-      <div class="item-header">{}. {} — {} <a href="https://synergia.librus.pl/przedmioty">[Otwórz]</a></div>
-      <details>
-        <summary>Pokaż szczegóły</summary>
-        <div class="item-content">{}</div>
-      </details>
+      <div class="item-header">{}. {} <a href="https://synergia.librus.pl/przegladaj_oceny/uczen">[Otwórz]</a></div>
+      {}
     </div>
 "#,
-                grade_class(&item.value),
+                grade_css_class(item),
                 idx + 1,
-                escape_html(&item.subject),
-                escape_html(&item.value),
-                escape_html(&item.info)
+                escape_html(&grade_heading(item)),
+                body
             ));
         }
         html.push_str("  </div>\n");
@@ -751,7 +797,10 @@ fn generate_plain_email(
             strip_markdown(&data.summary),
             key_points_text(data)
         ));
-        for (idx, item) in sorted_by_date(messages, |item| &item.date).iter().enumerate() {
+        for (idx, item) in sorted_by_date(messages, |item| &item.date)
+            .iter()
+            .enumerate()
+        {
             text.push_str(&format!(
                 "  {}. {} — {}, {}\n     {}\n",
                 idx + 1,
@@ -772,14 +821,13 @@ fn generate_plain_email(
         ));
         for (idx, item) in grades.iter().enumerate() {
             text.push_str(&format!(
-                "  {}. {}: {}{}\n",
+                "  {}. {}{}\n",
                 idx + 1,
-                item.subject,
-                item.value,
-                if item.info.is_empty() {
+                grade_label(item),
+                if item.description.is_empty() {
                     String::new()
                 } else {
-                    format!(" ({})", item.info)
+                    format!(" — {}", item.description)
                 }
             ));
         }
@@ -799,7 +847,11 @@ fn generate_plain_email(
             let deadline = if item.from == item.to {
                 format_date_pl(&item.from)
             } else {
-                format!("{} → {}", format_date_pl(&item.from), format_date_pl(&item.to))
+                format!(
+                    "{} → {}",
+                    format_date_pl(&item.from),
+                    format_date_pl(&item.to)
+                )
             };
             text.push_str(&format!(
                 "  {}. {} — {}: {} ({}, {})\n     {}\n",
@@ -842,10 +894,10 @@ pub async fn send_notification(
     homework: &[HomeworkItem],
     tasks_created: Option<usize>,
 ) -> Result<()> {
-    let has_announcements = announcements_data.is_some_and(|d| !d.key_points.is_empty());
-    let has_messages = messages_data.is_some_and(|d| !d.key_points.is_empty());
-    let has_grades = grades_data.is_some_and(|d| !d.key_points.is_empty());
-    let has_homework = homework_data.is_some_and(|d| !d.key_points.is_empty());
+    let has_announcements = announcements_data.is_some() && !announcements.is_empty();
+    let has_messages = messages_data.is_some() && !messages.is_empty();
+    let has_grades = grades_data.is_some() && !grades.is_empty();
+    let has_homework = homework_data.is_some() && !homework.is_empty();
 
     if !has_announcements && !has_messages && !has_grades && !has_homework {
         tracing::info!("No new items to notify about");
@@ -916,7 +968,10 @@ fn remark_html(remarks: &[RemarkItem]) -> Result<String> {
     if remarks.is_empty() {
         return Err(anyhow!("Refusing to send an empty remarks email"));
     }
-    if remarks.iter().any(|remark| remark.content.trim().is_empty()) {
+    if remarks
+        .iter()
+        .any(|remark| remark.content.trim().is_empty())
+    {
         return Err(anyhow!("Refusing to send an empty uwaga"));
     }
 
@@ -1159,7 +1214,10 @@ mod tests {
                 id: "1".into(),
                 subject: "Matematyka".into(),
                 value: "5-".into(),
-                info: String::new(),
+                description: String::new(),
+                category: String::new(),
+                date: "2026-10-20".into(),
+                kind: GradeKind::Numeric,
             }],
             &[HomeworkItem {
                 id: "2".into(),
@@ -1204,6 +1262,23 @@ mod tests {
     }
 
     #[test]
+    fn text_grades_use_category_instead_of_grade_symbol() {
+        let item = GradeItem {
+            id: "text:97964".into(),
+            subject: "J. angielski".into(),
+            value: "T".into(),
+            description: "Bardzo aktywna na lekcji.".into(),
+            category: "aktywność".into(),
+            date: "2026-10-02".into(),
+            kind: GradeKind::Text,
+        };
+
+        assert_eq!(grade_label(&item), "J. angielski: aktywność");
+        assert_eq!(grade_css_class(&item), "grade-text");
+        assert!(grade_heading(&item).starts_with("J. angielski — aktywność · 02.10.2026"));
+    }
+
+    #[test]
     #[ignore = "writes /tmp/opencode/email-preview.html for manual inspection"]
     fn render_preview_to_file() {
         let announcements = vec![AnnouncementItem {
@@ -1221,26 +1296,93 @@ mod tests {
             user: "Anna Nowak".into(),
         }];
         let grades = vec![
-            GradeItem { id: "1".into(), subject: "Matematyka".into(), value: "1".into(), info: "sprawdzian: dodawanie w zakresie 100".into() },
-            GradeItem { id: "2".into(), subject: "J. angielski".into(), value: "5-".into(), info: String::new() },
+            GradeItem {
+                id: "1".into(),
+                subject: "Matematyka".into(),
+                value: "1".into(),
+                description: "sprawdzian: dodawanie w zakresie 100".into(),
+                category: String::new(),
+                date: "2026-10-20".into(),
+                kind: GradeKind::Numeric,
+            },
+            GradeItem {
+                id: "text:2".into(),
+                subject: "J. angielski".into(),
+                value: "T".into(),
+                description: "Emilko, znakomicie rozwiązałaś samodzielne zadania. Gratuluję!"
+                    .into(),
+                category: "sprawdzian".into(),
+                date: "2026-10-21".into(),
+                kind: GradeKind::Text,
+            },
         ];
         let homework = vec![
-            HomeworkItem { id: "1".into(), subject: "Przyroda".into(), title: "Karty pracy str. 12".into(), kind: "Zadanie domowe".into(), from: "2026-10-20".into(), to: "2026-10-20".into(), content: "Karty pracy str. 12".into(), user: "Jan Kowalski".into() },
-            HomeworkItem { id: "2".into(), subject: "J. polski".into(), title: "Czytanie lektury".into(), kind: "Praca własna".into(), from: "2026-10-20".into(), to: "2026-10-24".into(), content: "Czytać rozdział 3".into(), user: "Monika Podżorska".into() },
+            HomeworkItem {
+                id: "1".into(),
+                subject: "Przyroda".into(),
+                title: "Karty pracy str. 12".into(),
+                kind: "Zadanie domowe".into(),
+                from: "2026-10-20".into(),
+                to: "2026-10-20".into(),
+                content: "Karty pracy str. 12".into(),
+                user: "Jan Kowalski".into(),
+            },
+            HomeworkItem {
+                id: "2".into(),
+                subject: "J. polski".into(),
+                title: "Czytanie lektury".into(),
+                kind: "Praca własna".into(),
+                from: "2026-10-20".into(),
+                to: "2026-10-24".into(),
+                content: "Czytać rozdział 3".into(),
+                user: "Monika Podżorska".into(),
+            },
         ];
         let analysis = |urgency: &str, summary: &str, subject: &str, tasks: usize| Analysis {
             urgency: urgency.into(),
             summary: summary.into(),
-            key_points: vec!["📖 **24.10.2026** — wpłata 30 zł".into(), "📚 **str. 42-43**".into()],
+            key_points: vec![
+                "📖 **24.10.2026** — wpłata 30 zł".into(),
+                "📚 **str. 42-43**".into(),
+            ],
             subject: Some(subject.into()),
-            tasks: (0..tasks).map(|i| ActionTask { title: format!("Zadanie przykładowe {i}"), due: Some("2026-10-24".into()) }).collect(),
+            tasks: (0..tasks)
+                .map(|i| ActionTask {
+                    title: format!("Zadanie przykładowe {i}"),
+                    due: Some("2026-10-24".into()),
+                })
+                .collect(),
         };
         let html = generate_html_email(
-            Some(&analysis("PILNE", "Wpłata 30 zł do piątku, przygotować wygodne buty.", "Wpłata 30 zł na wycieczkę do 24.10", 2)),
-            Some(&analysis("NORMALNE", "Uzupełnić strony 42-43.", "Uzupełnić str. 42-43 (matematyka)", 1)),
-            Some(&analysis("NIEPILNE", "Nowe oceny: matematyka 1, angielski 5-.", "Oceny: matematyka 1, angielski 5-", 0)),
-            Some(&analysis("NORMALNE", "Karty pracy str. 12, czytanie rozdziału 3.", "Karty pracy str. 12 (przyroda), czytanie (polski)", 1)),
-            &announcements, &messages, &grades, &homework, Some(3),
+            Some(&analysis(
+                "PILNE",
+                "Wpłata 30 zł do piątku, przygotować wygodne buty.",
+                "Wpłata 30 zł na wycieczkę do 24.10",
+                2,
+            )),
+            Some(&analysis(
+                "NORMALNE",
+                "Uzupełnić strony 42-43.",
+                "Uzupełnić str. 42-43 (matematyka)",
+                1,
+            )),
+            Some(&analysis(
+                "NIEPILNE",
+                "Nowe oceny: matematyka 1, angielski 5-.",
+                "Oceny: matematyka 1, angielski 5-",
+                0,
+            )),
+            Some(&analysis(
+                "NORMALNE",
+                "Karty pracy str. 12, czytanie rozdziału 3.",
+                "Karty pracy str. 12 (przyroda), czytanie (polski)",
+                1,
+            )),
+            &announcements,
+            &messages,
+            &grades,
+            &homework,
+            Some(3),
         );
         std::fs::create_dir_all("/tmp/opencode").unwrap();
         std::fs::write("/tmp/opencode/email-preview.html", html).unwrap();

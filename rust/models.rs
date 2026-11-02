@@ -42,12 +42,28 @@ pub struct AnnouncementItem {
     pub author: String,
 }
 
+/// Whether a grade is numeric or a teacher-written text grade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradeKind {
+    /// A regular grade such as `5`, `4+` or a percentage.
+    Numeric,
+    /// A descriptive/formative grade ("ocena kształtująca" / "ocena opisowa").
+    Text,
+}
+
 #[derive(Debug, Clone)]
 pub struct GradeItem {
     pub id: String,
     pub subject: String,
+    /// Grade symbol (`5`, `4+`, `T` for text grades).
     pub value: String,
-    pub info: String,
+    /// Teacher comment (numeric grades) or the full description (text grades).
+    pub description: String,
+    /// Category or skill name, e.g. `sprawdzian` or `Czytanie`.
+    pub category: String,
+    /// Date the grade was given (`YYYY-MM-DD`).
+    pub date: String,
+    pub kind: GradeKind,
 }
 
 #[derive(Debug, Clone)]

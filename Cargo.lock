@@ -1083,7 +1083,7 @@ dependencies = [
 [[package]]
 name = "librus-rs"
 version = "2.0.2"
-source = "git+https://github.com/FlakM/librus-rs?rev=224bd49#224bd49c613a2f416f757aab6ad44c40ac2b4d9b"
+source = "git+https://github.com/FlakM/librus-rs?rev=259bce5#259bce5e85ce968498f30dfa0d4a62717e8bb07f"
 dependencies = [
  "base64",
  "reqwest 0.13.1",

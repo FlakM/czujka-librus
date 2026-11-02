@@ -17,7 +17,9 @@ use sha2::{Digest, Sha256};
 
 use crate::db::Database;
 use crate::email::{send_notification, send_remarks};
-use crate::models::{ActionTask, AnnouncementItem, GradeItem, HomeworkItem, MessageItem};
+use crate::models::{
+    ActionTask, AnnouncementItem, GradeItem, GradeKind, HomeworkItem, MessageItem,
+};
 use crate::openai::OpenAiClient;
 use crate::vikunja::{sync_tasks, VikunjaClient};
 
@@ -205,7 +207,10 @@ async fn main() -> Result<()> {
             pending_tasks.extend(collect_tasks(
                 "ogloszenia",
                 analysis,
-                &new_announcements.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+                &new_announcements
+                    .iter()
+                    .map(|item| item.id.clone())
+                    .collect::<Vec<_>>(),
             ));
         }
     }
@@ -214,7 +219,10 @@ async fn main() -> Result<()> {
             pending_tasks.extend(collect_tasks(
                 "wiadomosci",
                 analysis,
-                &new_messages.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+                &new_messages
+                    .iter()
+                    .map(|item| item.id.clone())
+                    .collect::<Vec<_>>(),
             ));
         }
     }
@@ -223,7 +231,10 @@ async fn main() -> Result<()> {
             pending_tasks.extend(collect_tasks(
                 "oceny",
                 analysis,
-                &new_grades.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+                &new_grades
+                    .iter()
+                    .map(|item| item.id.clone())
+                    .collect::<Vec<_>>(),
             ));
         }
     }
@@ -231,7 +242,10 @@ async fn main() -> Result<()> {
         (Some(analysis), true) => pending_tasks.extend(collect_tasks(
             "zadania",
             analysis,
-            &new_homeworks.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+            &new_homeworks
+                .iter()
+                .map(|item| item.id.clone())
+                .collect::<Vec<_>>(),
         )),
         (Some(_), false) => pending_tasks.extend(fallback_homework_tasks(&new_homeworks)),
         (None, _) => {}
@@ -374,7 +388,21 @@ fn fallback_grades(items: &[GradeItem]) -> crate::models::Analysis {
         ),
         key_points: items
             .iter()
-            .map(|item| format!("📚 {} | ⭐ **{}**", item.subject, item.value))
+            .map(|item| match item.kind {
+                GradeKind::Numeric => format!("📚 {} | ⭐ **{}**", item.subject, item.value),
+                GradeKind::Text => {
+                    let description: String = item.description.chars().take(90).collect();
+                    let ellipsis = if item.description.chars().count() > 90 {
+                        "…"
+                    } else {
+                        ""
+                    };
+                    format!(
+                        "📚 {} | 📝 **{}** — {}{}",
+                        item.subject, item.category, description, ellipsis
+                    )
+                }
+            })
             .collect(),
         subject: None,
         tasks: Vec::new(),
@@ -588,38 +616,27 @@ async fn fetch_inbox_messages(
 
 async fn fetch_new_grades(client: &Client, db: &Database) -> Result<Vec<GradeItem>> {
     let existing_ids = db.existing_grade_ids()?;
-    let response = client.grades().await?;
-
+    let school_year = school_year();
     let mut subject_cache: HashMap<i32, String> = HashMap::new();
     let mut new_grades = Vec::new();
 
-    for grade in response.grades {
+    // Numeric grades, e.g. "5", "4+", "86%". Their IDs do not reset between
+    // school years, so the raw ID stays the dedupe key (and remains compatible
+    // with rows written before text grades existed).
+    for grade in client.grades().await?.grades {
         let grade_id = grade.id.to_string();
         if existing_ids.contains(&grade_id) {
             continue;
         }
 
-        let subject_id = grade.subject.id;
-        let subject_name = if let Some(name) = subject_cache.get(&subject_id) {
-            name.clone()
-        } else {
-            let name = client
-                .subject(subject_id)
-                .await
-                .ok()
-                .and_then(|resp| resp.subject)
-                .map(|subject| subject.name)
-                .unwrap_or_else(|| "Nieznany".to_string());
-            subject_cache.insert(subject_id, name.clone());
-            name
-        };
+        let subject_name = subject_name(client, &mut subject_cache, grade.subject.id).await;
 
-        let mut info = String::new();
+        let mut description = String::new();
         if let Some(comments) = grade.comments.as_ref() {
             if let Some(comment_ref) = comments.first() {
-                if let Ok(comment) = client.grade_comment(comment_ref.id).await {
-                    if let Some(comment) = comment.comment {
-                        info = comment.text;
+                if let Ok(response) = client.grade_comment(comment_ref.id).await {
+                    if let Some(comment) = response.comment {
+                        description = comment.text;
                     }
                 }
             }
@@ -629,12 +646,111 @@ async fn fetch_new_grades(client: &Client, db: &Database) -> Result<Vec<GradeIte
             id: grade_id,
             subject: subject_name,
             value: grade.grade,
-            info,
+            description,
+            category: String::new(),
+            date: grade.date,
+            kind: GradeKind::Numeric,
         };
 
         db.save_grade(&item)?;
         new_grades.push(item);
     }
+
+    // Text grades: "oceny kształtujące" (skill-based) and "oceny bieżące"
+    // (category-based). BaseTextGrades returns both in one response.
+    let text_grades = client.base_text_grades().await?.grades;
+
+    // Resolve only the lookups the response actually references. The skills
+    // list is large (~300 KB), so skip it for accounts that have no
+    // skill-based grades.
+    let categories: HashMap<i32, String> =
+        if text_grades.iter().any(|grade| grade.category.is_some()) {
+            match client.text_grade_categories().await {
+                Ok(response) => response
+                    .categories
+                    .into_iter()
+                    .map(|category| (category.id as i32, category.name))
+                    .collect(),
+                Err(err) => {
+                    tracing::warn!(error = %err, "Could not fetch text grade categories");
+                    HashMap::new()
+                }
+            }
+        } else {
+            HashMap::new()
+        };
+    let skills: HashMap<i32, String> = if text_grades.iter().any(|grade| grade.skill.is_some()) {
+        match client.descriptive_grade_skills().await {
+            Ok(response) => response
+                .skills
+                .into_iter()
+                .map(|skill| (skill.id as i32, skill.name))
+                .collect(),
+            Err(err) => {
+                tracing::warn!(error = %err, "Could not fetch descriptive grade skills");
+                HashMap::new()
+            }
+        }
+    } else {
+        HashMap::new()
+    };
+
+    // The first run for a school year records the grades that already exist
+    // without notifying about them. Librus resets text grade IDs every school
+    // year, so the baseline is scoped to the year.
+    let baseline_key = format!("text_grades_baselined:{school_year}");
+    let baselined = db.meta_get(&baseline_key)?.is_some();
+    let mut seeded = 0usize;
+
+    for grade in text_grades {
+        // Prefix the dedupe key so text and numeric grade ID spaces can never
+        // collide, even if Librus reuses an ID.
+        let grade_id = format!("text:{school_year}:{}", grade.id);
+        if existing_ids.contains(&grade_id) || !grade.show_in_grades_view {
+            continue;
+        }
+
+        let subject_name = subject_name(client, &mut subject_cache, grade.subject.id).await;
+        let category = grade
+            .category
+            .as_ref()
+            .and_then(|category| categories.get(&category.id).cloned())
+            .or_else(|| {
+                grade
+                    .skill
+                    .as_ref()
+                    .and_then(|skill| skills.get(&skill.id).cloned())
+            })
+            .unwrap_or_else(|| "ocena opisowa".to_string());
+
+        let item = GradeItem {
+            id: grade_id,
+            subject: subject_name,
+            value: "T".to_string(),
+            description: grade.grade,
+            category,
+            date: grade.date,
+            kind: GradeKind::Text,
+        };
+
+        db.save_grade(&item)?;
+        if baselined {
+            new_grades.push(item);
+        } else {
+            seeded += 1;
+        }
+    }
+
+    if !baselined {
+        db.meta_set(&baseline_key, "1")?;
+        tracing::info!(
+            school_year,
+            seeded,
+            "Recorded existing text grades as the notification baseline"
+        );
+    }
+
+    new_grades.sort_by(|a, b| a.date.cmp(&b.date));
 
     if new_grades.is_empty() {
         tracing::info!("No new grades");
@@ -643,6 +759,40 @@ async fn fetch_new_grades(client: &Client, db: &Database) -> Result<Vec<GradeIte
     }
 
     Ok(new_grades)
+}
+
+/// The school year that a grade added today belongs to: September starts a new
+/// year, so anything before September belongs to the previous calendar year.
+fn school_year() -> i32 {
+    school_year_for(chrono::Local::now().date_naive())
+}
+
+fn school_year_for(date: chrono::NaiveDate) -> i32 {
+    use chrono::Datelike;
+    if date.month() >= 9 {
+        date.year()
+    } else {
+        date.year() - 1
+    }
+}
+
+async fn subject_name(
+    client: &Client,
+    cache: &mut HashMap<i32, String>,
+    subject_id: i32,
+) -> String {
+    if let Some(name) = cache.get(&subject_id) {
+        return name.clone();
+    }
+    let name = client
+        .subject(subject_id)
+        .await
+        .ok()
+        .and_then(|resp| resp.subject)
+        .map(|subject| subject.name)
+        .unwrap_or_else(|| "Nieznany".to_string());
+    cache.insert(subject_id, name.clone());
+    name
 }
 
 async fn fetch_new_homeworks(
@@ -740,5 +890,43 @@ fn derive_title(content: &str) -> String {
         first_line.to_string()
     } else {
         format!("{}...", first_line.chars().take(60).collect::<String>())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn school_year_starts_in_september() {
+        let date = |value: &str| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").unwrap();
+        assert_eq!(school_year_for(date("2026-08-31")), 2025);
+        assert_eq!(school_year_for(date("2026-09-01")), 2026);
+        assert_eq!(school_year_for(date("2027-08-31")), 2026);
+        assert_eq!(school_year_for(date("2027-09-01")), 2027);
+    }
+
+    #[tokio::test]
+    #[ignore = "live test: logs into Librus and writes a temporary database"]
+    async fn live_grades_are_deduped_across_runs() {
+        let path = "/tmp/opencode/librus-live-grades.db";
+        let _ = std::fs::remove_file(path);
+        let db = Database::new(path).unwrap();
+        let client = Client::from_env().await.expect("live Librus login");
+
+        let first = fetch_new_grades(&client, &db).await.unwrap();
+        let baseline_key = format!("text_grades_baselined:{}", school_year());
+        assert!(db.meta_get(&baseline_key).unwrap().is_some());
+
+        let second = fetch_new_grades(&client, &db).await.unwrap();
+        assert!(
+            second.is_empty(),
+            "second run reported duplicates: {:?}",
+            second.iter().map(|grade| &grade.id).collect::<Vec<_>>()
+        );
+        assert!(
+            first.iter().any(|grade| grade.kind == GradeKind::Numeric),
+            "empty database should report existing numeric grades"
+        );
     }
 }

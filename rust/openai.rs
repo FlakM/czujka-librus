@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use chrono::Local;
 
-use crate::models::{Analysis, AnnouncementItem, GradeItem, HomeworkItem, MessageItem};
+use crate::models::{Analysis, AnnouncementItem, GradeItem, GradeKind, HomeworkItem, MessageItem};
 
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
 const SYSTEM_PROMPT: &str = r#"Jesteś asystentem rodzica Emilki, uczennicy klasy 2A SP ETE w Gliwicach.
@@ -114,14 +114,11 @@ impl OpenAiClient {
         // Drop tasks with unparseable or missing dates rather than rejecting the
         // whole response — the title alone is still worth tracking.
         for task in &mut analysis.tasks {
-            let valid_due = task
-                .due
-                .as_deref()
-                .and_then(|due| {
-                    chrono::NaiveDate::parse_from_str(due.trim(), "%Y-%m-%d")
-                        .ok()
-                        .map(|_| due.trim().to_string())
-                });
+            let valid_due = task.due.as_deref().and_then(|due| {
+                chrono::NaiveDate::parse_from_str(due.trim(), "%Y-%m-%d")
+                    .ok()
+                    .map(|_| due.trim().to_string())
+            });
             task.due = valid_due;
         }
         if !matches!(analysis.urgency.as_str(), "PILNE" | "NORMALNE" | "NIEPILNE")
@@ -195,20 +192,29 @@ impl OpenAiClient {
         let items_text = items
             .iter()
             .enumerate()
-            .map(|(idx, item)| {
-                format!(
-                    "{}. Przedmiot: {}\n   Ocena: {}\n   Informacje: {}",
+            .map(|(idx, item)| match item.kind {
+                GradeKind::Numeric => format!(
+                    "{}. Przedmiot: {}\n   Typ: ocena cyfrowa\n   Ocena: {}\n   Data: {}\n   Informacje: {}",
                     idx + 1,
                     item.subject,
                     item.value,
-                    item.info
-                )
+                    item.date,
+                    item.description
+                ),
+                GradeKind::Text => format!(
+                    "{}. Przedmiot: {}\n   Typ: ocena opisowa (kształtująca)\n   Kategoria: {}\n   Data: {}\n   Treść oceny: {}",
+                    idx + 1,
+                    item.subject,
+                    item.category,
+                    item.date,
+                    item.description
+                ),
             })
             .collect::<Vec<_>>()
             .join("\n\n");
 
         let prompt = format!(
-            "OCENY:\n{}\n\nZachowaj dokładny symbol każdej oceny oraz procenty i konkretny komentarz nauczyciela. Nie zakładaj skali ocen, jeśli nie podano jej w danych. Nie wnioskuj o trendzie ani pogorszeniu bez wcześniejszych wyników. Zaproponuj powtórkę wyłącznie w zakresie wskazanym przez nauczyciela. Format punktu: 📚 przedmiot | ⭐ **ocena** | istotny komentarz, jeśli podany.",
+            "OCENY:\n{}\n\nZachowaj dokładny symbol każdej oceny cyfrowej oraz procenty i konkretny komentarz nauczyciela. Oceny opisowe (kształtujące) mają kategorię i pełną treść opisu — zachowaj sens opisu i wskaż, czego dotyczy, ale nie skracaj go do symbolu. Nie zakładaj skali ocen, jeśli nie podano jej w danych. Nie wnioskuj o trendzie ani pogorszeniu bez wcześniejszych wyników. Zaproponuj powtórkę wyłącznie w zakresie wskazanym przez nauczyciela. Format punktu: 📚 przedmiot | ⭐ **ocena** dla oceny cyfrowej albo 📚 przedmiot | 📝 **kategoria** — krótki sens opisu dla oceny opisowej.",
             items_text
         );
 

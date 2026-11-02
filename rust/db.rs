@@ -80,6 +80,10 @@ impl Database {
               task_id INTEGER NOT NULL,
               created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS meta (
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL
+            );
             "#,
         )?;
         Ok(())
@@ -105,6 +109,25 @@ impl Database {
 
     pub fn existing_grade_ids(&self) -> Result<HashSet<String>> {
         self.existing_ids("grades")
+    }
+
+    pub fn meta_get(&self, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?",
+                params![key],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn meta_set(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
     }
 
     pub fn existing_homework_ids(&self) -> Result<HashSet<String>> {
@@ -146,8 +169,8 @@ impl Database {
     pub fn save_grade(&self, grade: &GradeItem) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
-            "INSERT INTO grades (id, subject, value, info, fetched_at) VALUES (?, ?, ?, ?, ?)",
-            params![grade.id, grade.subject, grade.value, grade.info, now],
+            "INSERT OR IGNORE INTO grades (id, subject, value, info, fetched_at) VALUES (?, ?, ?, ?, ?)",
+            params![grade.id, grade.subject, grade.value, grade.description, now],
         )?;
         Ok(())
     }
@@ -224,5 +247,32 @@ impl Database {
             params![key, task_id, Utc::now().to_rfc3339()],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn meta_values_persist_and_can_be_updated() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.meta_get("text_grades_baselined:2026").unwrap().is_none());
+
+        db.meta_set("text_grades_baselined:2026", "1").unwrap();
+        assert_eq!(
+            db.meta_get("text_grades_baselined:2026")
+                .unwrap()
+                .as_deref(),
+            Some("1")
+        );
+
+        db.meta_set("text_grades_baselined:2026", "2").unwrap();
+        assert_eq!(
+            db.meta_get("text_grades_baselined:2026")
+                .unwrap()
+                .as_deref(),
+            Some("2")
+        );
     }
 }

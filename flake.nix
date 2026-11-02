@@ -23,7 +23,7 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
             outputHashes = {
-              "librus-rs-2.0.2" = "sha256-lgR8dj0Qt089i6+bh7pFKwNCwobGIOmO14Y3piMf6hY=";
+              "librus-rs-2.0.2" = "sha256-tzAw0WfyKVlZTOulfn2Pl9LzNw2+0jHrktTSGWb9bOc=";
             };
           };
 
