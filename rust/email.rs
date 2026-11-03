@@ -81,6 +81,16 @@ fn generate_urgency_badge(urgency: &str) -> String {
     format!(r#"<span class="badge {}">{}</span>"#, class, urgency)
 }
 
+/// The sender already identifies Librus, so the subject carries only the
+/// priority as a traffic-light emoji: red urgent, amber normal, green low.
+fn urgency_emoji(urgency: &str) -> &'static str {
+    match urgency {
+        "PILNE" => "🔴",
+        "NORMALNE" => "🟡",
+        _ => "🟢",
+    }
+}
+
 fn plural(n: usize, one: &str, few: &str, many: &str) -> String {
     match n {
         1 => format!("1 {one}"),
@@ -193,7 +203,7 @@ fn compose_subject(
     .join(" | ");
 
     truncate_chars(
-        &format!("[Librus][{}] Emilka: {}", max_urgency, parts),
+        &format!("{} Emilka: {}", urgency_emoji(max_urgency), parts),
         MAX_SUBJECT_LENGTH,
     )
 }
@@ -1024,7 +1034,7 @@ pub async fn send_remarks(remarks: &[RemarkItem]) -> Result<()> {
         let remark = &remarks[0];
         truncate_chars(
             &format!(
-                "[Librus] Uwaga {}: {} — {}, {}",
+                "Uwaga {}: {} — {}, {}",
                 remark.kind.to_lowercase(),
                 remark.category,
                 remark.teacher,
@@ -1039,7 +1049,7 @@ pub async fn send_remarks(remarks: &[RemarkItem]) -> Result<()> {
             .collect::<Vec<_>>()
             .join(", ");
         truncate_chars(
-            &format!("[Librus] {} nowych uwag ({})", remarks.len(), kinds),
+            &format!("{} nowych uwag ({})", remarks.len(), kinds),
             MAX_SUBJECT_LENGTH,
         )
     };
@@ -1194,10 +1204,7 @@ mod tests {
             &[],
             &[],
         );
-        assert_eq!(
-            subject,
-            "[Librus][PILNE] Emilka: Wpłata 30 zł na wycieczkę do piątku"
-        );
+        assert_eq!(subject, "🔴 Emilka: Wpłata 30 zł na wycieczkę do piątku");
     }
 
     #[test]
@@ -1232,7 +1239,7 @@ mod tests {
         );
         assert_eq!(
             subject,
-            "[Librus][NORMALNE] Emilka: ⭐ Matematyka: 5- | 📝 J. polski zadanie domowe — do 21.10.2026 (środa)"
+            "🟡 Emilka: ⭐ Matematyka: 5- | 📝 J. polski zadanie domowe — do 21.10.2026 (środa)"
         );
     }
 
@@ -1249,6 +1256,14 @@ mod tests {
     fn dates_are_polish_and_arrows_only_differ_when_range_differs() {
         assert_eq!(format_date_pl("2026-10-20T14:30:00"), "20.10.2026 (wtorek)");
         assert_eq!(format_date_pl("nie-data"), "nie-data");
+    }
+
+    #[test]
+    fn urgency_is_an_emoji_in_the_subject() {
+        assert_eq!(urgency_emoji("PILNE"), "🔴");
+        assert_eq!(urgency_emoji("NORMALNE"), "🟡");
+        assert_eq!(urgency_emoji("NIEPILNE"), "🟢");
+        assert_eq!(urgency_emoji("nieznane"), "🟢");
     }
 
     #[test]
