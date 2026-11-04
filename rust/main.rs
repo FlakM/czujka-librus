@@ -534,6 +534,14 @@ async fn fetch_new_messages(client: &mut Client, db: &Database) -> Result<Vec<Me
 
         // Clean the message body
         let body = text_utils::clean_message_body(&raw_body);
+        if body.is_empty() && !raw_body.trim().is_empty() {
+            // Should not happen; if it does, surface it instead of mailing an
+            // empty message again.
+            tracing::warn!(
+                message_id = %message.message_id,
+                "Message body became empty after cleaning"
+            );
+        }
 
         // Skip simple acknowledgments
         if text_utils::is_simple_acknowledgment(&body) || text_utils::is_remark_notification(&body)
