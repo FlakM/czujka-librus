@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::db::Database;
-use crate::models::CalendarEvent;
+use crate::models::{looks_like_teacher_absence, CalendarEvent};
 
 #[derive(Deserialize)]
 struct Credentials {
@@ -74,8 +74,22 @@ impl GoogleCalendar {
     }
 
     pub async fn sync(&self, db: &Database, events: &[CalendarEvent]) -> Result<()> {
+        // Teacher absences are noise, and earlier runs already wrote some of
+        // them into the calendar (including the family calendar used before the
+        // dedicated school calendar existed). Scrub those first, then never
+        // create new ones.
+        let purged = self.purge_teacher_absences(db).await?;
+        let total = events.len();
+        let absences = events
+            .iter()
+            .filter(|event| event.is_teacher_absence())
+            .count();
+        let events: Vec<&CalendarEvent> = events
+            .iter()
+            .filter(|event| !event.is_teacher_absence())
+            .collect();
         let mut changed = 0;
-        for event in events {
+        for event in &events {
             let payload = event_payload(event)?;
             let serialized = serde_json::to_string(&payload)?;
             let cache_id = format!("{}#{}", self.events_url, event.id);
@@ -164,11 +178,85 @@ impl GoogleCalendar {
         tracing::info!(
             changed,
             removed,
-            total = events.len(),
+            purged,
+            absences,
+            total,
             "Google Calendar sync completed"
         );
         Ok(())
     }
+
+    /// Removes every previously synced teacher absence from every calendar this
+    /// service has written to, regardless of date — the generic reconciliation
+    /// below skips past events, which would leave old absences behind forever.
+    async fn purge_teacher_absences(&self, db: &Database) -> Result<usize> {
+        let mut removed = 0;
+        for (cache_id, serialized) in db.all_calendar_entries()? {
+            let payload: Value = serde_json::from_str(&serialized)?;
+            if !payload_looks_like_teacher_absence(&payload) {
+                continue;
+            }
+            let Some((calendar_url, event_id)) = cache_id.split_once('#') else {
+                continue;
+            };
+            let mut item_url = Url::parse(calendar_url).context("Invalid cached calendar URL")?;
+            item_url
+                .path_segments_mut()
+                .map_err(|_| anyhow::anyhow!("Invalid calendar URL"))?
+                .push(event_id);
+            let response = self
+                .http
+                .delete(item_url)
+                .bearer_auth(&self.access_token)
+                .send()
+                .await?;
+            if !response.status().is_success()
+                && !matches!(response.status(), StatusCode::NOT_FOUND | StatusCode::GONE)
+            {
+                if response.status() == StatusCode::FORBIDDEN {
+                    // We can no longer write to that calendar (e.g. access was
+                    // revoked); drop the row instead of retrying forever.
+                    tracing::warn!(
+                        event = %event_id,
+                        calendar = %calendar_url,
+                        "No write access to remove a teacher absence; dropping cached entry"
+                    );
+                    db.forget_calendar_entry(&cache_id)?;
+                } else {
+                    // Keep the cache row so the next run retries; one
+                    // problematic event must not block the rest of the sync.
+                    tracing::warn!(
+                        status = %response.status(),
+                        event = %event_id,
+                        calendar = %calendar_url,
+                        "Could not remove a teacher absence from the calendar; will retry"
+                    );
+                }
+                continue;
+            }
+            db.forget_calendar_entry(&cache_id)?;
+            removed += 1;
+        }
+        if removed > 0 {
+            tracing::info!(
+                count = removed,
+                "Removed teacher absences from the calendar"
+            );
+        }
+        Ok(removed)
+    }
+}
+
+fn payload_looks_like_teacher_absence(payload: &Value) -> bool {
+    let source_url = payload["source"]["url"]
+        .as_str()
+        .or_else(|| payload["extendedProperties"]["private"]["librusSource"].as_str())
+        .unwrap_or_default();
+    looks_like_teacher_absence(
+        payload["summary"].as_str().unwrap_or_default(),
+        payload["description"].as_str().unwrap_or_default(),
+        source_url,
+    )
 }
 
 fn calendar_date(value: &Value) -> Result<NaiveDate> {
@@ -291,6 +379,62 @@ mod tests {
         assert_eq!(payload["end"]["date"], "2026-10-08");
         assert_eq!(payload["id"], "abc123");
         assert_eq!(payload["start"]["date"], "2026-10-06");
+    }
+
+    #[test]
+    fn cached_absence_payloads_are_recognised() {
+        let absence = json!({
+            "summary": "Librus: Nieobecność nauczyciela — Minkina Justyna",
+            "description": "Nauczyciel: Minkina Justyna\n\nhttps://synergia.librus.pl/terminarz/szczegoly_wolne/3135416",
+            "start": {"date": "2026-10-28"},
+            "end": {"date": "2026-10-29"},
+            "source": {"title": "Librus — terminarz", "url": "https://synergia.librus.pl/terminarz/szczegoly_wolne/3135416"},
+            "extendedProperties": {"private": {"librusSource": "https://synergia.librus.pl/terminarz/szczegoly_wolne/3135416"}}
+        });
+        assert!(payload_looks_like_teacher_absence(&absence));
+        assert!(!payload_looks_like_teacher_absence(
+            &event_payload(&event()).unwrap()
+        ));
+    }
+
+    #[tokio::test]
+    async fn teacher_absences_are_purged_and_never_uploaded() {
+        let (calendar, server) =
+            mock_calendar(vec![("DELETE", 204), ("PUT", 404), ("POST", 200)]).await;
+        let db = Database::new(":memory:").unwrap();
+        let prefix = format!("{}#", calendar.events_url);
+
+        // Synced by an earlier run, already in the past: the generic
+        // reconciliation would never delete it.
+        let cached_absence = json!({
+            "summary": "Librus: Nieobecność nauczyciela — Minkina Justyna",
+            "description": "Nauczyciel: Minkina Justyna\n\nhttps://synergia.librus.pl/terminarz/szczegoly_wolne/3135416",
+            "start": {"date": "2020-01-01"},
+            "end": {"date": "2020-01-02"},
+            "source": {"url": "https://synergia.librus.pl/terminarz/szczegoly_wolne/3135416"}
+        });
+        db.mark_calendar_synced(&format!("{prefix}absence-1"), &cached_absence.to_string())
+            .unwrap();
+
+        let mut regular = event();
+        regular.date = (chrono::Local::now().date_naive() + Days::new(1)).to_string();
+        regular.end_date = regular.date.clone();
+        let new_absence = CalendarEvent {
+            title: "Librus: Nieobecność nauczyciela — Krzyminska Katarzyna".into(),
+            description: "Nauczyciel: Krzyminska Katarzyna".into(),
+            source_url: "https://synergia.librus.pl/terminarz/szczegoly_wolne/3113432".into(),
+            ..event()
+        };
+
+        calendar.sync(&db, &[regular, new_absence]).await.unwrap();
+
+        let entries = db.calendar_entries(&prefix).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].0.ends_with("#abc123"));
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .unwrap()
+            .unwrap();
     }
 
     #[test]

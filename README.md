@@ -96,7 +96,7 @@ cargo build --release
 - 🤖 **Analiza AI** - GPT-6.1 Sol analizuje ogłoszenia, wiadomości, oceny i zadania
 - 📋 **Uwagi** - wszystkie nowe uwagi w jednym e-mailu, pełna treść, bez streszczania i pustych automatycznych zawiadomień
 - ✅ **Integracja z Vikunja** - obowiązki wymagające działania (wpłaty, przybory, nauka) lądują jako zadania z terminami w wybranym projekcie
-- 📅 **Terminarz** - opcjonalna synchronizacja z wybranym kalendarzem Google: tworzenie, aktualizowanie i usuwanie odwołanych wydarzeń
+- 📅 **Terminarz** - opcjonalna synchronizacja z wybranym kalendarzem Google: tworzenie, aktualizowanie i usuwanie odwołanych wydarzeń; nieobecności nauczycieli są pomijane i automatycznie usuwane z kalendarza
 - 📧 **E-mail z HTML i wersją tekstową** - piękne, responsywne powiadomienia z tematem opisującym sedno (AI pisze też tytuł sekcji)
 - 🎯 **Inteligentna pilność** - AI rozpoznaje co naprawdę wymaga uwagi
 - 👨‍👩‍👧 **Multi-recipient** - wysyłaj do wielu odbiorców
@@ -151,7 +151,7 @@ Uwaga: synchronizacja zawsze używa jednego kalendarza zdefiniowanego w `GOOGLE_
 
 Plik JSON z poświadczeniami, zarządzany przez SOPS, zawiera `client_id`, `client_secret` i `refresh_token`. Na NixOS można użyć opcji `services.librus-notifications.calendarId` i `calendarCredentialsFile`.
 
-Synchronizacja obejmuje bieżący miesiąc i dwa kolejne, w tym nieobecności nauczycieli. Wydarzenia bez jawnych godzin są całodniowe; godziny jawne używają strefy `Europe/Warsaw`. Zmiany aktualizują istniejące wpisy, a odwołane przyszłe wydarzenia są usuwane wyłącznie w tym zakresie i wyłącznie spośród wpisów utworzonych przez usługę. Bez konfiguracji kalendarza e-maile działają niezależnie.
+Synchronizacja obejmuje bieżący miesiąc i dwa kolejne. Wydarzenia bez jawnych godzin są całodniowe; godziny jawne używają strefy `Europe/Warsaw`. Zmiany aktualizują istniejące wpisy, a odwołane przyszłe wydarzenia są usuwane wyłącznie w tym zakresie i wyłącznie spośród wpisów utworzonych przez usługę. **Nieobecności nauczycieli** (`/terminarz/szczegoly_wolne/` z tytułem „Nieobecność nauczyciela") nie są dodawane, a wpisy utworzone wcześniej — także w innych kalendarzach zapisanych w bazie i z przeszłymi datami — są usuwane przy każdym uruchomieniu. Bez konfiguracji kalendarza e-maile działają niezależnie.
 
 `librus-notifications --check` sprawdza dostęp do uwag i terminarza bez wysyłania e-maili, zapisu w kalendarzu i zmian w bazie.
 

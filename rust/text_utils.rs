@@ -65,6 +65,27 @@ pub fn is_remark_notification(body: &str) -> bool {
         && (body.contains("przejdź do menu") || body.contains("uwagi o uczniu"))
 }
 
+/// Lowercases and strips Polish diacritics so keyword matching does not depend
+/// on how Librus spells a word (e.g. `Nieobecność` vs `nieobecnosc`).
+pub fn normalize_for_match(input: &str) -> String {
+    input
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'ą' => 'a',
+            'ć' => 'c',
+            'ę' => 'e',
+            'ł' => 'l',
+            'ń' => 'n',
+            'ó' => 'o',
+            'ś' => 's',
+            'ź' => 'z',
+            'ż' => 'z',
+            other => other,
+        })
+        .collect()
+}
+
 pub fn is_within_days(date_str: &str, days: i64) -> bool {
     use chrono::{NaiveDateTime, Utc};
     let now = Utc::now().naive_utc();
@@ -94,6 +115,14 @@ mod tests {
     fn test_clean_html() {
         let input = "Hello</br>world<br/>test";
         assert_eq!(clean_message_body(input), "Hello\nworld\ntest");
+    }
+
+    #[test]
+    fn polish_diacritics_are_stripped_for_matching() {
+        assert_eq!(
+            normalize_for_match("Nieobecność Nauczyciela — Łódź"),
+            "nieobecnosc nauczyciela — lodz"
+        );
     }
 
     #[test]

@@ -231,6 +231,15 @@ impl Database {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Every synced event across every calendar this service has ever written
+    /// to, including calendars it no longer targets (e.g. the family calendar
+    /// used before the dedicated school calendar existed).
+    pub fn all_calendar_entries(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare("SELECT id, payload FROM calendar_sync")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn forget_calendar_entry(&self, id: &str) -> Result<()> {
         self.conn
             .execute("DELETE FROM calendar_sync WHERE id = ?", [id])?;

@@ -99,3 +99,82 @@ pub struct CalendarEvent {
     pub description: String,
     pub source_url: String,
 }
+
+impl CalendarEvent {
+    /// Teacher absences ("Nieobecność nauczyciela") are scheduling noise: the
+    /// school handles substitutions, and a cancelled lesson is not something a
+    /// parent needs on the family calendar.
+    pub fn is_teacher_absence(&self) -> bool {
+        looks_like_teacher_absence(&self.title, &self.description, &self.source_url)
+    }
+}
+
+/// Heuristic for Librus teacher-absence entries.
+///
+/// Librus itself labels them, so no AI call is needed: the detail page kind is
+/// `Nieobecność nauczyciela`, and every absence lives under the `szczegoly_wolne`
+/// ("free day") terminarz path. The URL check alone is not enough (holidays use
+/// the same path), hence the extra title/description requirement.
+pub fn looks_like_teacher_absence(title: &str, description: &str, source_url: &str) -> bool {
+    let title = crate::text_utils::normalize_for_match(title);
+    if title.contains("nieobecnosc") {
+        return true;
+    }
+    let url = source_url.to_ascii_lowercase();
+    url.contains("/terminarz/szczegoly_wolne/")
+        && (title.contains("nauczyciel")
+            || crate::text_utils::normalize_for_match(description).contains("nauczyciel"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(title: &str, description: &str, source_url: &str) -> CalendarEvent {
+        CalendarEvent {
+            id: "x".into(),
+            title: title.into(),
+            date: "2026-11-01".into(),
+            end_date: "2026-11-01".into(),
+            time_from: None,
+            time_to: None,
+            description: description.into(),
+            source_url: source_url.into(),
+        }
+    }
+
+    #[test]
+    fn librus_absence_titles_are_recognised_with_and_without_diacritics() {
+        for title in [
+            "Librus: Nieobecność nauczyciela — Minkina Justyna",
+            "Librus: Nieobecność nauczyciela — ",
+            "Librus: nieobecnosc nauczyciela",
+        ] {
+            assert!(
+                event(
+                    title,
+                    "",
+                    "https://synergia.librus.pl/terminarz/szczegoly_wolne/1"
+                )
+                .is_teacher_absence(),
+                "{title}"
+            );
+        }
+    }
+
+    #[test]
+    fn free_day_entries_without_teacher_marker_are_kept() {
+        let holiday = event(
+            "Librus: Dzień wolny — ",
+            "Opis: ferie zimowe",
+            "https://synergia.librus.pl/terminarz/szczegoly_wolne/2",
+        );
+        assert!(!holiday.is_teacher_absence());
+        assert!(!event(
+            "Librus: sprawdzian — Edukacja matematyczna",
+            "Nauczyciel: Podżorska Monika",
+            "https://synergia.librus.pl/terminarz/szczegoly/123",
+        )
+        .is_teacher_absence());
+    }
+}
