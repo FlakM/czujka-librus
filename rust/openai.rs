@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use chrono::Local;
 
 use crate::models::{Analysis, AnnouncementItem, GradeItem, GradeKind, HomeworkItem, MessageItem};
+use crate::text_utils;
 
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
 const SYSTEM_PROMPT: &str = r#"Jesteś asystentem rodzica Emilki, uczennicy klasy 2A SP ETE w Gliwicach.
@@ -150,7 +151,9 @@ impl OpenAiClient {
                     item.title,
                     item.user,
                     item.date,
-                    item.body
+                    // Summarize only the sender's own text; the quoted thread is
+                    // the parent's earlier message and would duplicate tasks.
+                    text_utils::strip_quoted_thread(&item.body)
                 )
             })
             .collect::<Vec<_>>()

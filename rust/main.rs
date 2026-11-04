@@ -543,8 +543,12 @@ async fn fetch_new_messages(client: &mut Client, db: &Database) -> Result<Vec<Me
             );
         }
 
-        // Skip simple acknowledgments
-        if text_utils::is_simple_acknowledgment(&body) || text_utils::is_remark_notification(&body)
+        // Skip simple acknowledgments, but always deliver replies: a teacher
+        // answering our message is exactly the content we want in the email.
+        let reply = text_utils::strip_quoted_thread(&body);
+        let is_reply = message.topic.trim_start().to_lowercase().starts_with("re:");
+        if text_utils::is_remark_notification(&body)
+            || (!is_reply && text_utils::is_simple_acknowledgment(&reply))
         {
             tracing::debug!(
                 message_id = %message.message_id,

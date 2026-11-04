@@ -39,8 +39,17 @@ pub fn clean_message_body(body: &str) -> String {
     // Remove remaining HTML tags
     result = HTML_TAG_RE.replace_all(&result, "").to_string();
 
-    // Remove the quoted thread — but only when the reply itself has text above
-    // it. A message that is just a forwarded thread must not become empty.
+    normalize_whitespace(result)
+}
+
+/// The part written by the sender, without the quoted thread below the `-----`
+/// marker. Used for the AI summary and for acknowledgment detection so that an
+/// old thread never produces new tasks; the email still shows the full body.
+pub fn strip_quoted_thread(body: &str) -> String {
+    let mut result = body.to_string();
+
+    // Only drop the quote when the reply itself has text above it; a message
+    // that is just a forwarded thread must not become empty.
     if let Some(quote) = THREAD_QUOTE_RE.find(&result) {
         if !result[..quote.start()].trim().is_empty() {
             result.truncate(quote.start());
@@ -50,10 +59,12 @@ pub fn clean_message_body(body: &str) -> String {
     // Remove "Użytkownik X napisał:" lines
     result = USER_WROTE_RE.replace_all(&result, "").to_string();
 
-    // Normalize whitespace
+    normalize_whitespace(result)
+}
+
+fn normalize_whitespace(mut result: String) -> String {
     result = MULTI_NEWLINE_RE.replace_all(&result, "\n\n").to_string();
     result = MULTI_SPACE_RE.replace_all(&result, " ").to_string();
-
     result.trim().to_string()
 }
 
@@ -132,11 +143,14 @@ mod tests {
     }
 
     #[test]
-    fn reply_wrapped_in_multiline_cdata_keeps_the_answer_and_drops_the_quote() {
+    fn reply_keeps_the_quote_in_the_body_but_the_ai_sees_only_the_answer() {
         // Verbatim shape of Librus message 3923960 ("Re: Usprawiedliwienie").
         let input = "<Message><Content><![CDATA[Dzień dobry,\nDziękuję za informację.\nPozdrawiam\nMonika Podżorska\n\n-----\nUżytkownik: Flak Emilia (Osoba-Flak Patrycja) Rodzic 2a SP 2026-11-04 07:57:12 napisał:\nDzień dobry,\n\nEmilka dzisiaj przyjdzie na drugą lekcję lub ciut później. Bardzo proszę o usprawiedliwienie :)\n\nPozdrawiam,\nPatrycja Flak]]></Content><Actions></Actions></Message>";
+        let body = clean_message_body(input);
+        assert!(body.starts_with("Dzień dobry,\nDziękuję za informację."));
+        assert!(body.contains("Emilka dzisiaj przyjdzie na drugą lekcję"));
         assert_eq!(
-            clean_message_body(input),
+            strip_quoted_thread(&body),
             "Dzień dobry,\nDziękuję za informację.\nPozdrawiam\nMonika Podżorska"
         );
     }
@@ -144,7 +158,7 @@ mod tests {
     #[test]
     fn a_message_that_is_only_a_quoted_thread_is_not_emptied() {
         let input = "-----\nUżytkownik: Flak Emilia Rodzic 2026-11-04 07:57:12 napisał:\nDzień dobry,\nEmilka dzisiaj przyjdzie później.";
-        let cleaned = clean_message_body(input);
+        let cleaned = strip_quoted_thread(input);
         assert!(cleaned.contains("Emilka dzisiaj przyjdzie później"));
     }
 
@@ -173,7 +187,8 @@ mod tests {
     #[test]
     fn test_remove_thread_quotes() {
         let input = "New message\n-----\nOld quoted message";
-        assert_eq!(clean_message_body(input), "New message");
+        assert_eq!(clean_message_body(input), input);
+        assert_eq!(strip_quoted_thread(input), "New message");
     }
 
     #[test]
